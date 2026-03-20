@@ -23,12 +23,14 @@ Production-oriented Telegram bot built with Pyrofork, `spotdl`, `yt-dlp`, and Fa
 
 ```text
 .
+├── main.py
 ├── app.py
 ├── bot.py
 ├── config.py
 ├── requirements.txt
 ├── .env.example
 ├── README.md
+├── spotify_downloader.py
 ├── downloads/
 │   ├── songs/
 │   ├── playlists/
@@ -89,13 +91,19 @@ sudo apt install -y ffmpeg
 5. Start both bot and web server:
 
 ```bash
-python app.py
+python main.py
 ```
 
 If you want to run only the bot:
 
 ```bash
 python bot.py
+```
+
+The legacy standalone Spotify downloader was preserved as:
+
+```bash
+python spotify_downloader.py
 ```
 
 ## How It Works
