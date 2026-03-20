@@ -4,7 +4,7 @@ import logging
 
 from pyrogram import Client, filters
 
-from bot.services.progress import task_registry
+from app.services.progress import task_registry
 
 
 logger = logging.getLogger(__name__)

@@ -4,7 +4,7 @@ import asyncio
 
 
 async def run_bot() -> None:
-    from bot.client import create_bot_client, register_bot_commands, register_handlers
+    from app.core.client import create_bot_client, register_bot_commands, register_handlers
 
     app = create_bot_client()
     register_handlers(app)

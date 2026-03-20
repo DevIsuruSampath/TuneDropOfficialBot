@@ -6,7 +6,7 @@ from typing import Any
 
 from pyrogram.types import Message
 
-from config import settings
+from app.core.config import settings
 
 
 Handler = Callable[..., Awaitable[Any]]

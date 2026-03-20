@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from bot.utils.validators import InputType
+from app.utils.validators import InputType
 
 
 @dataclass(slots=True)

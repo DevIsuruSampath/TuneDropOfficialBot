@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from config import settings
+from app.core.config import settings
 
 
 def setup_logging() -> None:

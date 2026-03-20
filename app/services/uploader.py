@@ -6,7 +6,7 @@ from pathlib import Path
 from pyrogram import Client
 from pyrogram.types import Message
 
-from config import settings
+from app.core.config import settings
 
 
 @dataclass(slots=True)

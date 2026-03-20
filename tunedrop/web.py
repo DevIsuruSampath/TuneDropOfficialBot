@@ -4,8 +4,8 @@ from __future__ import annotations
 async def run_web() -> None:
     import uvicorn
 
-    from config import settings
-    from web.server import create_web_app
+    from app.core.config import settings
+    from app.web.server import create_web_app
 
     web_app = create_web_app()
     config = uvicorn.Config(

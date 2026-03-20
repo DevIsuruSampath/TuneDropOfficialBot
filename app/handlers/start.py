@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pyrogram import Client, filters
 
-from bot.messages import HELP_TEXT, WELCOME_TEXT
+from app.core.constants import HELP_TEXT, WELCOME_TEXT
 
 
 def register(app: Client) -> None:

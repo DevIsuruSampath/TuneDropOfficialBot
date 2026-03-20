@@ -3,7 +3,7 @@ from __future__ import annotations
 from pyrogram import Client
 from pyrogram.types import BotCommand
 
-from config import settings
+from app.core.config import settings
 
 
 def create_bot_client() -> Client:
@@ -18,7 +18,7 @@ def create_bot_client() -> Client:
 
 
 def register_handlers(app: Client) -> None:
-    from bot.handlers import admin, callback_handler, errors, playlist_handler, song_command, start, url_handler
+    from app.handlers import admin, callback_handler, errors, playlist_handler, song_command, start, url_handler
 
     start.register(app)
     song_command.register(app)

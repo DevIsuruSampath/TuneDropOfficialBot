@@ -10,8 +10,8 @@ from tunedrop.web import run_web
 
 
 def prepare_runtime() -> None:
-    from bot.utils.logger import setup_logging
-    from config import settings
+    from app.core.config import settings
+    from app.core.logging import setup_logging
 
     settings.ensure_directories()
     settings.validate()

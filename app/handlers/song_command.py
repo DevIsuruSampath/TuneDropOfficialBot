@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pyrogram import Client, filters
 
-from bot.helpers import command_argument
-from bot.services.downloader import DownloadRequest, download_manager
-from bot.services.progress import task_registry
+from app.services.downloader import DownloadRequest, download_manager
+from app.services.progress import task_registry
+from app.utils.helpers import command_argument
 
 
 def register(app: Client) -> None:

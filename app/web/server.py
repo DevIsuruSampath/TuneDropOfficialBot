@@ -8,9 +8,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from bot.services.link_generator import link_store
-from bot.utils.time_utils import estimate_download_time, format_bytes, format_seconds
-from config import settings
+from app.core.config import settings
+from app.services.link_generator import link_store
+from app.utils.time_utils import estimate_download_time, format_bytes, format_seconds
 
 
 BASE_DIR = Path(__file__).resolve().parent

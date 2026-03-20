@@ -9,7 +9,7 @@ from typing import Any
 from dotenv import load_dotenv
 
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(BASE_DIR / ".env")
 
 

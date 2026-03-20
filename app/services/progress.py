@@ -9,8 +9,8 @@ from typing import Any, Awaitable, Callable
 from pyrogram import Client
 from pyrogram.types import Message
 
-from bot.utils.file_utils import read_json_file, write_json_file
-from config import settings
+from app.core.config import settings
+from app.utils.file_utils import read_json_file, write_json_file
 
 
 logger = logging.getLogger(__name__)
