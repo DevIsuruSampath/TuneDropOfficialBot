@@ -5,9 +5,9 @@ import contextlib
 from enum import StrEnum
 from typing import Final
 
-from app.core.client import create_bot_client, register_bot_commands, register_handlers
-from app.core.config import RuntimeTarget, settings
-from app.core.logging import setup_logging
+from tunedrop.app.core.client import create_bot_client, register_bot_commands, register_handlers
+from tunedrop.app.core.config import RuntimeTarget, settings
+from tunedrop.app.core.logging import setup_logging
 
 
 class RunMode(StrEnum):
@@ -39,7 +39,7 @@ async def run_bot() -> None:
 async def run_web_server() -> None:
     import uvicorn
 
-    from app.web.server import create_web_app
+    from tunedrop.app.web.server import create_web_app
 
     web_app = create_web_app()
     config = uvicorn.Config(

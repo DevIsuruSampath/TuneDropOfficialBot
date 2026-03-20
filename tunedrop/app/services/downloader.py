@@ -14,23 +14,23 @@ from pyrogram import Client
 from pyrogram.types import Message
 from yt_dlp import YoutubeDL
 
-from app.core.config import settings
-from app.services.link_generator import link_store
-from app.services.metadata import read_audio_metadata
-from app.services.progress import DownloadTask
-from app.services.uploader import upload_zip_to_storage
-from app.services.youtube_service import extract_info
-from app.services.zip_service import build_zip
-from app.utils.ffmpeg_utils import extract_thumbnail_from_url
-from app.utils.file_utils import (
+from tunedrop.app.core.config import settings
+from tunedrop.app.services.link_generator import link_store
+from tunedrop.app.services.metadata import read_audio_metadata
+from tunedrop.app.services.progress import DownloadTask
+from tunedrop.app.services.uploader import upload_zip_to_storage
+from tunedrop.app.services.youtube_service import extract_info
+from tunedrop.app.services.zip_service import build_zip
+from tunedrop.app.utils.ffmpeg_utils import extract_thumbnail_from_url
+from tunedrop.app.utils.file_utils import (
     cleanup_paths,
     ensure_clean_directory,
     find_first_file,
     list_audio_files,
     sanitize_filename,
 )
-from app.utils.time_utils import estimate_download_time, format_bytes, format_seconds
-from app.utils.validators import InputType
+from tunedrop.app.utils.time_utils import estimate_download_time, format_bytes, format_seconds
+from tunedrop.app.utils.validators import InputType
 
 
 logger = logging.getLogger(__name__)

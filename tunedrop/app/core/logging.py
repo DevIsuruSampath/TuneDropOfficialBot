@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from app.core.config import settings
+from tunedrop.app.core.config import settings
 
 
 def setup_logging() -> None:

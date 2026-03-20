@@ -4,9 +4,9 @@ import secrets
 from datetime import UTC, datetime
 from typing import Any
 
-from app.core.config import settings
-from app.utils.file_utils import read_json_file, upsert_user_file_record, write_json_file
-from app.utils.time_utils import format_bytes
+from tunedrop.app.core.config import settings
+from tunedrop.app.utils.file_utils import read_json_file, upsert_user_file_record, write_json_file
+from tunedrop.app.utils.time_utils import format_bytes
 
 
 class LinkStore:

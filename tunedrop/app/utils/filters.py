@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pyrogram import filters
 
-from app.utils.validators import is_supported_url
+from tunedrop.app.utils.validators import is_supported_url
 
 
 music_input = filters.create(

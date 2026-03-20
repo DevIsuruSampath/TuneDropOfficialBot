@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from app.utils.file_utils import create_zip_archive
+from tunedrop.app.utils.file_utils import create_zip_archive
 
 
 async def build_zip(source_dir: Path, zip_path: Path) -> Path:

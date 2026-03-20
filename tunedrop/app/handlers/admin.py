@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pyrogram import Client, filters
 
-from app.services.progress import task_registry
-from app.utils.decorators import admin_only
+from tunedrop.app.services.progress import task_registry
+from tunedrop.app.utils.decorators import admin_only
 
 
 def register(app: Client) -> None:

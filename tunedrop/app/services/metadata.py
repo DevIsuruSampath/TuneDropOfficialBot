@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.utils.ffmpeg_utils import probe_audio
+from tunedrop.app.utils.ffmpeg_utils import probe_audio
 
 
 @dataclass(slots=True)

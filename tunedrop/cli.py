@@ -19,7 +19,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
-    from app.runtime import run
+    from tunedrop.app.runtime import run
 
     run(args.mode)
     return 0

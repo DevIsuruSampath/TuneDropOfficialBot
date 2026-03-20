@@ -6,7 +6,7 @@ from typing import Any
 
 from pyrogram.types import Message
 
-from app.core.config import settings
+from tunedrop.app.core.config import settings
 
 
 Handler = Callable[..., Awaitable[Any]]

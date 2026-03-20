@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.utils.validators import InputType
+from tunedrop.app.utils.validators import InputType
 
 
 @dataclass(slots=True)

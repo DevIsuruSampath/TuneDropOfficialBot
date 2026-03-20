@@ -26,24 +26,18 @@ Production-oriented Telegram bot built with Pyrofork, `spotdl`, `yt-dlp`, and Fa
 ├── .env.example
 ├── README.md
 ├── requirements.txt
-├── app/
-│   ├── __init__.py
-│   ├── runtime.py
-│   ├── core/
-│   │   ├── __init__.py
-│   │   ├── client.py
-│   │   ├── config.py
-│   │   ├── constants.py
-│   │   └── logging.py
-│   ├── handlers/
-│   ├── services/
-│   ├── utils/
-│   └── web/
 ├── tunedrop/
 │   ├── __init__.py
 │   ├── __main__.py
 │   ├── cli.py
-│   └── ...
+│   └── app/
+│       ├── __init__.py
+│       ├── runtime.py
+│       ├── core/
+│       ├── handlers/
+│       ├── services/
+│       ├── utils/
+│       └── web/
 ├── downloads/
 │   ├── songs/
 │   ├── playlists/

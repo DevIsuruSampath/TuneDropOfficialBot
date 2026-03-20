@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pyrogram import Client, filters
 
-from app.services.downloader import DownloadRequest, download_manager
-from app.services.progress import task_registry
-from app.utils.filters import music_input
-from app.utils.validators import classify_input, is_supported_url
+from tunedrop.app.services.downloader import DownloadRequest, download_manager
+from tunedrop.app.services.progress import task_registry
+from tunedrop.app.utils.filters import music_input
+from tunedrop.app.utils.validators import classify_input, is_supported_url
 
 
 def register(app: Client) -> None:

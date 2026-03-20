@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pyrogram import Client, filters
 
-from app.services.link_generator import link_store
+from tunedrop.app.services.link_generator import link_store
 
 
 def register(app: Client) -> None:

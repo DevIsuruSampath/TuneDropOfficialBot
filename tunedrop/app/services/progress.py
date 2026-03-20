@@ -9,8 +9,8 @@ from typing import Any, Awaitable, Callable
 from pyrogram import Client
 from pyrogram.types import Message
 
-from app.core.config import settings
-from app.utils.file_utils import read_json_file, write_json_file
+from tunedrop.app.core.config import settings
+from tunedrop.app.utils.file_utils import read_json_file, write_json_file
 
 
 logger = logging.getLogger(__name__)
