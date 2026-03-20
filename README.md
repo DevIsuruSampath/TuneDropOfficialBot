@@ -23,7 +23,6 @@ Production-oriented Telegram bot built with Pyrofork, `spotdl`, `yt-dlp`, and Fa
 
 ```text
 .
-├── main.py
 ├── app.py
 ├── bot.py
 ├── config.py
@@ -91,7 +90,7 @@ sudo apt install -y ffmpeg
 5. Start both bot and web server:
 
 ```bash
-python main.py
+python app.py
 ```
 
 If you want to run only the bot:
