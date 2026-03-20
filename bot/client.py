@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pyrogram import Client
+from pyrogram.types import BotCommand
 
 from config import settings
 
@@ -26,3 +27,15 @@ def register_handlers(app: Client) -> None:
     callback_handler.register(app)
     admin.register(app)
     errors.register(app)
+
+
+async def register_bot_commands(app: Client) -> None:
+    await app.set_bot_commands(
+        [
+            BotCommand("start", "Show the welcome message"),
+            BotCommand("help", "Show usage instructions"),
+            BotCommand("song", "Search and download a song"),
+            BotCommand("myfiles", "List your recent playlist ZIP links"),
+            BotCommand("cancel", "Cancel the current task"),
+        ]
+    )

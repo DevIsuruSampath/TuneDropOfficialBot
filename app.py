@@ -5,8 +5,7 @@ import contextlib
 
 import uvicorn
 
-from bot.client import create_bot_client, register_handlers
-from bot.services.progress import task_registry
+from bot.client import create_bot_client, register_bot_commands, register_handlers
 from bot.utils.logger import setup_logging
 from config import settings
 from web.server import create_web_app
@@ -17,6 +16,7 @@ async def run_bot() -> None:
     register_handlers(app)
     await app.start()
     try:
+        await register_bot_commands(app)
         await asyncio.Event().wait()
     finally:
         await app.stop()
@@ -36,6 +36,7 @@ async def run_web() -> None:
 
 async def main() -> None:
     settings.ensure_directories()
+    settings.validate()
     setup_logging()
     await asyncio.gather(run_bot(), run_web())
 

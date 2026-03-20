@@ -15,8 +15,12 @@ class InputType(StrEnum):
     UNKNOWN = "unknown"
 
 
-SPOTIFY_TRACK_RE = re.compile(r"^https?://open\.spotify\.com/track/[A-Za-z0-9]+")
-SPOTIFY_PLAYLIST_RE = re.compile(r"^https?://open\.spotify\.com/playlist/[A-Za-z0-9]+")
+SPOTIFY_TRACK_RE = re.compile(
+    r"^https?://open\.spotify\.com/(?:intl-[^/]+/)?track/[A-Za-z0-9]+(?:\?.*)?$"
+)
+SPOTIFY_PLAYLIST_RE = re.compile(
+    r"^https?://open\.spotify\.com/(?:intl-[^/]+/)?playlist/[A-Za-z0-9]+(?:\?.*)?$"
+)
 YOUTUBE_RE = re.compile(r"^https?://(?:www\.)?(?:youtube\.com|youtu\.be)/")
 YOUTUBE_MUSIC_RE = re.compile(r"^https?://music\.youtube\.com/")
 

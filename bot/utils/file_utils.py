@@ -59,7 +59,12 @@ def create_zip_archive(source_dir: Path, zip_path: Path) -> Path:
 
 async def cleanup_paths(paths: list[Path]) -> None:
     for path in paths:
-        await asyncio.to_thread(shutil.rmtree, path, True)
+        if not path.exists():
+            continue
+        if path.is_dir():
+            await asyncio.to_thread(shutil.rmtree, path, True)
+        else:
+            await asyncio.to_thread(path.unlink, True)
 
 
 def list_audio_files(path: Path) -> list[Path]:

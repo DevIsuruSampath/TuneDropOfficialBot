@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -60,6 +62,39 @@ class Settings:
             self.data_dir,
         ):
             path.mkdir(parents=True, exist_ok=True)
+        self._ensure_json_file(self.users_file, {})
+        self._ensure_json_file(self.cache_file, {})
+        self._ensure_json_file(self.tasks_file, {})
+
+    def validate(self) -> None:
+        missing: list[str] = []
+        if self.api_id <= 0:
+            missing.append("API_ID")
+        if not self.api_hash:
+            missing.append("API_HASH")
+        if not self.bot_token:
+            missing.append("BOT_TOKEN")
+        if self.private_channel_id == 0:
+            missing.append("PRIVATE_CHANNEL_ID")
+
+        if missing:
+            raise RuntimeError(
+                "Missing required configuration values in .env: "
+                + ", ".join(missing)
+            )
+
+        if self.download_speed_kbps <= 0:
+            raise RuntimeError("DEFAULT_USER_SPEED_KBPS must be greater than 0.")
+        if self.max_playlist_items <= 0:
+            raise RuntimeError("MAX_PLAYLIST_ITEMS must be greater than 0.")
+        if self.progress_update_interval <= 0:
+            raise RuntimeError("PROGRESS_UPDATE_INTERVAL must be greater than 0.")
+
+    @staticmethod
+    def _ensure_json_file(path: Path, default_payload: Any) -> None:
+        if path.exists():
+            return
+        path.write_text(json.dumps(default_payload, indent=2), encoding="utf-8")
 
 
 settings = Settings()

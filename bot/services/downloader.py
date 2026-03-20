@@ -17,7 +17,6 @@ from yt_dlp import YoutubeDL
 from bot.services.link_generator import link_store
 from bot.services.metadata import read_audio_metadata
 from bot.services.progress import DownloadTask
-from bot.services.spotify_service import build_spotify_target
 from bot.services.uploader import upload_zip_to_storage
 from bot.services.youtube_service import extract_info
 from bot.services.zip_service import build_zip
@@ -128,7 +127,7 @@ class MusicDownloadManager:
                 )
             )
         finally:
-            await cleanup_paths([playlist_dir])
+            await cleanup_paths([playlist_dir, zip_path])
 
     async def _handle_youtube(self, app: Client, message: Message, task: DownloadTask) -> None:
         info = await extract_info(task.request.source)
@@ -196,7 +195,7 @@ class MusicDownloadManager:
                 )
             )
         finally:
-            await cleanup_paths([playlist_dir])
+            await cleanup_paths([playlist_dir, zip_path])
 
     async def _send_audio(self, app: Client, message: Message, audio_file: Path, metadata: Any) -> None:
         await app.send_audio(
@@ -277,6 +276,8 @@ class MusicDownloadManager:
             "outtmpl": output_template,
             "noplaylist": True,
             "quiet": True,
+            "windowsfilenames": True,
+            "restrictfilenames": True,
             "progress_hooks": [progress_hook],
             "postprocessors": [
                 {
@@ -312,6 +313,8 @@ class MusicDownloadManager:
             "format": "bestaudio/best",
             "outtmpl": str(out_dir / "%(playlist_index)s - %(title)s.%(ext)s"),
             "quiet": True,
+            "windowsfilenames": True,
+            "restrictfilenames": True,
             "progress_hooks": [progress_hook],
             "postprocessors": [
                 {
