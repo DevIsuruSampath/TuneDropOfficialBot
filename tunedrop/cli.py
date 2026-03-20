@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import argparse
 
-from tunedrop.runner import run_all, run_with_signal_handling
+from tunedrop.app import run_all, run_with_signal_handling
 
 
 def build_parser() -> argparse.ArgumentParser:

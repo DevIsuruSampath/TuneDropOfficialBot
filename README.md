@@ -30,8 +30,10 @@ Production-oriented Telegram bot built with Pyrofork, `spotdl`, `yt-dlp`, and Fa
 ├── tunedrop/
 │   ├── __init__.py
 │   ├── __main__.py
+│   ├── app.py
+│   ├── bot.py
 │   ├── cli.py
-│   └── runner.py
+│   └── web.py
 ├── downloads/
 │   ├── songs/
 │   ├── playlists/
