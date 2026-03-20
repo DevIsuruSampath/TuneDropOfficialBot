@@ -53,6 +53,20 @@ class DownloadRequest:
         return cls(user_id=user_id, chat_id=chat_id, source=source, input_type=input_type)
 
 
+@dataclass(slots=True)
+class SubprocessResult:
+    recent_lines: tuple[str, ...]
+    error_lines: tuple[str, ...]
+
+    @property
+    def last_error(self) -> str | None:
+        return self.error_lines[-1] if self.error_lines else None
+
+    @property
+    def last_line(self) -> str | None:
+        return self.recent_lines[-1] if self.recent_lines else None
+
+
 class MusicDownloadManager:
     async def __call__(self, app: Client, message: Message, task: DownloadTask) -> None:
         request: DownloadRequest = task.request
@@ -79,10 +93,13 @@ class MusicDownloadManager:
         work_dir = ensure_clean_directory(settings.temp_dir / f"{task.user_id}_{int(time.time())}")
         try:
             await task.update("Downloading track with spotdl...")
-            await self._run_spotdl(task, task.request.source, work_dir, playlist=False)
+            result = await self._run_spotdl(task, task.request.source, work_dir, playlist=False)
             audio_file = find_first_file(work_dir, suffix=".mp3")
             if not audio_file:
-                raise RuntimeError("No MP3 file produced by spotdl.")
+                detail = result.last_error or result.last_line
+                if detail:
+                    raise RuntimeError(f"spotdl did not produce an MP3 file. Last output: {detail}")
+                raise RuntimeError("spotdl did not produce an MP3 file.")
 
             metadata = read_audio_metadata(audio_file, fallback_title=audio_file.stem)
             await task.update("Uploading track to Telegram...")
@@ -97,10 +114,13 @@ class MusicDownloadManager:
         zip_path = settings.zip_dir / f"{safe_name}.zip"
         try:
             await task.update("Downloading playlist with spotdl...")
-            await self._run_spotdl(task, task.request.source, playlist_dir, playlist=True)
+            result = await self._run_spotdl(task, task.request.source, playlist_dir, playlist=True)
             tracks = list_audio_files(playlist_dir)
             if not tracks:
-                raise RuntimeError("Playlist download finished but no MP3 files were found.")
+                detail = result.last_error or result.last_line
+                if detail:
+                    raise RuntimeError(f"Playlist download finished without MP3 files. Last output: {detail}")
+                raise RuntimeError("Playlist download finished without MP3 files.")
 
             await task.update(f"Creating ZIP archive for {len(tracks)} tracks...")
             await build_zip(playlist_dir, zip_path)
@@ -208,7 +228,7 @@ class MusicDownloadManager:
             thumb=str(metadata.thumbnail_path) if metadata.thumbnail_path and metadata.thumbnail_path.exists() else None,
         )
 
-    async def _run_spotdl(self, task: DownloadTask, source: str, out_dir: Path, playlist: bool) -> None:
+    async def _run_spotdl(self, task: DownloadTask, source: str, out_dir: Path, playlist: bool) -> SubprocessResult:
         cmd = [
             shutil.which("spotdl") or "spotdl",
             "download",
@@ -234,9 +254,9 @@ class MusicDownloadManager:
             cmd.extend(["--client-secret", settings.spotify_client_secret])
         if settings.spotify_cookie_file:
             cmd.extend(["--cookie-file", settings.spotify_cookie_file])
-        await self._run_subprocess(task, cmd, "spotdl")
+        return await self._run_subprocess(task, cmd, "spotdl")
 
-    async def _run_subprocess(self, task: DownloadTask, cmd: list[str], name: str) -> None:
+    async def _run_subprocess(self, task: DownloadTask, cmd: list[str], name: str) -> SubprocessResult:
         logger.info("Running %s command: %s", name, shlex.join(cmd))
         process = await asyncio.create_subprocess_exec(
             *cmd,
@@ -245,6 +265,7 @@ class MusicDownloadManager:
             stderr=asyncio.subprocess.STDOUT,
         )
         recent_lines: deque[str] = deque(maxlen=5)
+        error_lines: deque[str] = deque(maxlen=5)
         try:
             while True:
                 if task.cancelled():
@@ -267,6 +288,8 @@ class MusicDownloadManager:
                 text = line.decode("utf-8", errors="replace").strip()
                 if text:
                     recent_lines.append(text)
+                    if self._is_subprocess_error_line(name, text):
+                        error_lines.append(text)
                     logger.info("%s: %s", name, text)
                     progress_text = self._map_subprocess_progress(name, text)
                     if progress_text:
@@ -275,6 +298,9 @@ class MusicDownloadManager:
             if code != 0:
                 last_detail = recent_lines[-1] if recent_lines else "No error details captured."
                 raise RuntimeError(f"{name} exited with code {code}. Last output: {last_detail}")
+            if error_lines:
+                raise RuntimeError(f"{name} failed. Last output: {error_lines[-1]}")
+            return SubprocessResult(recent_lines=tuple(recent_lines), error_lines=tuple(error_lines))
         finally:
             with contextlib.suppress(ProcessLookupError):
                 process.kill()
@@ -297,6 +323,22 @@ class MusicDownloadManager:
         if "skipping" in lowered:
             return text
         return None
+
+    def _is_subprocess_error_line(self, name: str, text: str) -> bool:
+        lowered = text.lower()
+        if name == "spotdl":
+            return any(
+                marker in lowered
+                for marker in (
+                    "error:",
+                    "audioprovidererror",
+                    "ffmpegerror",
+                    "lookuperror",
+                    "download error",
+                    "failed",
+                )
+            )
+        return "error" in lowered or "failed" in lowered
 
     async def _run_ytdlp_download(self, task: DownloadTask, url: str, out_dir: Path) -> Path:
         loop = asyncio.get_running_loop()
