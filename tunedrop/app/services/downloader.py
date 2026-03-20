@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 from collections import deque
 import logging
+import re
 import shlex
 import shutil
 import time
@@ -67,6 +68,12 @@ class SubprocessResult:
         return self.recent_lines[-1] if self.recent_lines else None
 
 
+class SubprocessFailure(RuntimeError):
+    def __init__(self, message: str, result: SubprocessResult):
+        super().__init__(message)
+        self.result = result
+
+
 class MusicDownloadManager:
     async def __call__(self, app: Client, message: Message, task: DownloadTask) -> None:
         request: DownloadRequest = task.request
@@ -93,7 +100,16 @@ class MusicDownloadManager:
         work_dir = ensure_clean_directory(settings.temp_dir / f"{task.user_id}_{int(time.time())}")
         try:
             await task.update("Downloading track with spotdl...")
-            result = await self._run_spotdl(task, task.request.source, work_dir, playlist=False)
+            try:
+                result = await self._run_spotdl(task, task.request.source, work_dir, playlist=False)
+            except SubprocessFailure as exc:
+                fallback_url = self._extract_youtube_url(exc.result.recent_lines)
+                if not fallback_url:
+                    raise RuntimeError(str(exc)) from exc
+                logger.warning("spotdl failed; falling back to direct yt-dlp download: %s", fallback_url)
+                await task.update("spotdl failed. Falling back to direct YouTube download...")
+                await self._run_ytdlp_download(task, fallback_url, work_dir)
+                result = exc.result
             audio_file = find_first_file(work_dir, suffix=".mp3")
             if not audio_file:
                 detail = result.last_error or result.last_line
@@ -279,9 +295,10 @@ class MusicDownloadManager:
                 except asyncio.TimeoutError as exc:
                     process.terminate()
                     last_detail = recent_lines[-1] if recent_lines else "No output was produced."
-                    raise RuntimeError(
+                    raise SubprocessFailure(
                         f"{name} stalled after {int(settings.spotdl_inactivity_timeout_seconds)} seconds. "
-                        f"Last output: {last_detail}"
+                        f"Last output: {last_detail}",
+                        SubprocessResult(recent_lines=tuple(recent_lines), error_lines=tuple(error_lines)),
                     ) from exc
                 if not line:
                     break
@@ -297,9 +314,15 @@ class MusicDownloadManager:
             code = await process.wait()
             if code != 0:
                 last_detail = recent_lines[-1] if recent_lines else "No error details captured."
-                raise RuntimeError(f"{name} exited with code {code}. Last output: {last_detail}")
+                raise SubprocessFailure(
+                    f"{name} exited with code {code}. Last output: {last_detail}",
+                    SubprocessResult(recent_lines=tuple(recent_lines), error_lines=tuple(error_lines)),
+                )
             if error_lines:
-                raise RuntimeError(f"{name} failed. Last output: {error_lines[-1]}")
+                raise SubprocessFailure(
+                    f"{name} failed. Last output: {error_lines[-1]}",
+                    SubprocessResult(recent_lines=tuple(recent_lines), error_lines=tuple(error_lines)),
+                )
             return SubprocessResult(recent_lines=tuple(recent_lines), error_lines=tuple(error_lines))
         finally:
             with contextlib.suppress(ProcessLookupError):
@@ -339,6 +362,13 @@ class MusicDownloadManager:
                 )
             )
         return "error" in lowered or "failed" in lowered
+
+    def _extract_youtube_url(self, lines: tuple[str, ...]) -> str | None:
+        for text in reversed(lines):
+            match = re.search(r"https?://(?:www\.)?(?:youtube\.com|youtu\.be)\S+", text)
+            if match:
+                return match.group(0)
+        return None
 
     async def _run_ytdlp_download(self, task: DownloadTask, url: str, out_dir: Path) -> Path:
         loop = asyncio.get_running_loop()
