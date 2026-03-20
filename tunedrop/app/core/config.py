@@ -46,6 +46,7 @@ class Settings:
     mongodb_uri: str = os.getenv("MONGODB_URI", "mongodb://localhost:27017/")
     mongodb_database: str = os.getenv("MONGODB_DATABASE", "tunedrop")
 
+    data_dir: Path = BASE_DIR / "data"
     downloads_dir: Path = BASE_DIR / "downloads"
     songs_dir: Path = downloads_dir / "songs"
     playlists_dir: Path = downloads_dir / "playlists"
@@ -56,6 +57,7 @@ class Settings:
 
     def ensure_directories(self) -> None:
         for path in (
+            self.data_dir,
             self.downloads_dir,
             self.songs_dir,
             self.playlists_dir,
