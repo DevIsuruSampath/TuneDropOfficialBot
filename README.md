@@ -29,7 +29,6 @@ Production-oriented Telegram bot built with Pyrofork, `spotdl`, `yt-dlp`, and Fa
 ├── requirements.txt
 ├── .env.example
 ├── README.md
-├── spotify_downloader.py
 ├── downloads/
 │   ├── songs/
 │   ├── playlists/
@@ -97,12 +96,6 @@ If you want to run only the bot:
 
 ```bash
 python bot.py
-```
-
-The legacy standalone Spotify downloader was preserved as:
-
-```bash
-python spotify_downloader.py
 ```
 
 ## How It Works
