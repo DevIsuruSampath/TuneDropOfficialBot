@@ -23,12 +23,15 @@ Production-oriented Telegram bot built with Pyrofork, `spotdl`, `yt-dlp`, and Fa
 
 ```text
 .
-├── app.py
-├── bot.py
 ├── config.py
 ├── requirements.txt
 ├── .env.example
 ├── README.md
+├── tunedrop/
+│   ├── __init__.py
+│   ├── __main__.py
+│   ├── cli.py
+│   └── runner.py
 ├── downloads/
 │   ├── songs/
 │   ├── playlists/
@@ -86,16 +89,10 @@ sudo apt install -y ffmpeg
 
 4. Copy `.env.example` to `.env` and fill in the values.
 
-5. Start both bot and web server:
+5. Start the full project:
 
 ```bash
-python app.py
-```
-
-If you want to run only the bot:
-
-```bash
-python bot.py
+python -m tunedrop
 ```
 
 ## How It Works
@@ -116,22 +113,6 @@ python bot.py
 - `/song <name>` - search and download a song
 - `/myfiles` - list recently generated playlist links
 - `/cancel` - cancel current task
-
-## Commit Convention
-
-Use Conventional Commits for future changes:
-
-- `feat:` new features
-- `fix:` bug fixes
-- `docs:` documentation changes
-- `refactor:` internal code improvements
-- `chore:` maintenance work
-
-Example:
-
-```bash
-git commit -m "feat: add telegram music downloader bot"
-```
 
 ## Notes
 
