@@ -1,0 +1,65 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
+
+
+@dataclass(slots=True)
+class Settings:
+    api_id: int = int(os.getenv("API_ID", "0"))
+    api_hash: str = os.getenv("API_HASH", "")
+    bot_token: str = os.getenv("BOT_TOKEN", "")
+    private_channel_id: int = int(os.getenv("PRIVATE_CHANNEL_ID", "0"))
+    bot_session_name: str = os.getenv("BOT_SESSION_NAME", "music_downloader_bot")
+    download_base_url: str = os.getenv("DOWNLOAD_BASE_URL", "http://127.0.0.1:8080")
+    web_host: str = os.getenv("WEB_HOST", "0.0.0.0")
+    web_port: int = int(os.getenv("WEB_PORT", "8080"))
+    download_speed_kbps: float = float(os.getenv("DEFAULT_USER_SPEED_KBPS", "100"))
+    max_playlist_items: int = int(os.getenv("MAX_PLAYLIST_ITEMS", "100"))
+    progress_update_interval: float = float(os.getenv("PROGRESS_UPDATE_INTERVAL", "2.5"))
+    auto_cleanup_minutes: int = int(os.getenv("AUTO_CLEANUP_MINUTES", "30"))
+    log_level: str = os.getenv("LOG_LEVEL", "INFO")
+    admin_user_ids: set[int] = field(
+        default_factory=lambda: {
+            int(value.strip())
+            for value in os.getenv("ADMIN_USER_IDS", "").split(",")
+            if value.strip()
+        }
+    )
+    spotify_cookie_file: str = os.getenv("SPOTDL_COOKIE_FILE", "")
+    spotify_client_id: str = os.getenv("SPOTIFY_CLIENT_ID", "")
+    spotify_client_secret: str = os.getenv("SPOTIFY_CLIENT_SECRET", "")
+
+    downloads_dir: Path = BASE_DIR / "downloads"
+    songs_dir: Path = downloads_dir / "songs"
+    playlists_dir: Path = downloads_dir / "playlists"
+    temp_dir: Path = downloads_dir / "temp"
+    zip_dir: Path = downloads_dir / "zip"
+    logs_dir: Path = BASE_DIR / "logs"
+    data_dir: Path = BASE_DIR / "data"
+    users_file: Path = data_dir / "users.json"
+    cache_file: Path = data_dir / "cache.json"
+    tasks_file: Path = data_dir / "tasks.json"
+    log_file: Path = logs_dir / "bot.log"
+
+    def ensure_directories(self) -> None:
+        for path in (
+            self.downloads_dir,
+            self.songs_dir,
+            self.playlists_dir,
+            self.temp_dir,
+            self.zip_dir,
+            self.logs_dir,
+            self.data_dir,
+        ):
+            path.mkdir(parents=True, exist_ok=True)
+
+
+settings = Settings()

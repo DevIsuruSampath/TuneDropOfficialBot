@@ -1,0 +1,11 @@
+pyrofork==2.3.68
+tgcrypto==1.2.5
+spotdl==4.4.3
+yt-dlp==2026.2.14
+ffmpeg-python==0.2.0
+python-dotenv==1.0.1
+aiofiles==24.1.0
+fastapi==0.115.0
+uvicorn==0.30.6
+jinja2==3.1.4
+httpx==0.27.2
