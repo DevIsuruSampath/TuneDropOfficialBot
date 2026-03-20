@@ -54,6 +54,7 @@ Production-oriented Telegram bot built with Pyrofork, `spotdl`, `yt-dlp`, FastAP
 - Python 3.12 or newer
 - MongoDB 6.0 or newer
 - `ffmpeg` installed on the VPS
+- Cloudflare WARP configured during build or server setup with `bash <(curl -fsSL git.io/warp.sh) wgd`
 - Telegram bot token from BotFather
 - Telegram API credentials from `my.telegram.org`
 - A private Telegram channel where the bot is an admin
@@ -75,15 +76,21 @@ sudo apt update
 sudo apt install -y ffmpeg
 ```
 
-4. Start MongoDB and copy `.env.example` to `.env`, then fill in the values.
+4. Configure Cloudflare WARP.
 
-5. Start the bot:
+```bash
+bash <(curl -fsSL git.io/warp.sh) wgd
+```
+
+5. Start MongoDB and copy `.env.example` to `.env`, then fill in the values.
+
+6. Start the bot:
 
 ```bash
 python -m tunedrop
 ```
 
-6. Optional runtime modes:
+7. Optional runtime modes:
 
 ```bash
 python -m tunedrop --mode web

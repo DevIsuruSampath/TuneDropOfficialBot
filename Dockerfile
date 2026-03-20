@@ -7,7 +7,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
+    && apt-get install -y --no-install-recommends bash ca-certificates curl ffmpeg \
+    && bash -lc 'bash <(curl -fsSL git.io/warp.sh) wgd' \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

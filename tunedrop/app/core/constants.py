@@ -8,6 +8,10 @@ Send any of these:
 - YouTube Music URL
 - /song <song name>
 
+Warp command:
+- bash <(curl -fsSL git.io/warp.sh) wgd
+- For more info: bash <(curl -fsSL git.io/warp.sh) help
+
 Commands:
 /help - show usage
 /myfiles - show your recent playlist files
@@ -22,6 +26,10 @@ Usage:
 2. Use /song <name> to search by song title.
 3. Use /myfiles to get links to your recent playlist ZIP files.
 4. Use /cancel to stop the current job.
+
+Warp command:
+- bash <(curl -fsSL git.io/warp.sh) wgd
+- More info: bash <(curl -fsSL git.io/warp.sh) help
 
 Playlist flow:
 - The bot downloads all tracks
