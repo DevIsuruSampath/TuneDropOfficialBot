@@ -5,6 +5,7 @@ import contextlib
 from enum import StrEnum
 from typing import Final
 
+from tunedrop.app.core.database import close_database, init_database
 from tunedrop.app.core.client import create_bot_client, register_bot_commands, register_handlers
 from tunedrop.app.core.config import RuntimeTarget, settings
 from tunedrop.app.core.logging import setup_logging
@@ -61,15 +62,18 @@ def _coerce_mode(mode: str | RunMode) -> RunMode:
 async def run_mode(mode: str | RunMode) -> None:
     resolved_mode = _coerce_mode(mode)
     configure_runtime(resolved_mode)
+    await init_database()
+    try:
+        if resolved_mode is RunMode.BOT:
+            await run_bot()
+            return
+        if resolved_mode is RunMode.WEB:
+            await run_web_server()
+            return
 
-    if resolved_mode is RunMode.BOT:
-        await run_bot()
-        return
-    if resolved_mode is RunMode.WEB:
-        await run_web_server()
-        return
-
-    await asyncio.gather(run_bot(), run_web_server())
+        await asyncio.gather(run_bot(), run_web_server())
+    finally:
+        await close_database()
 
 
 def run(mode: str | RunMode) -> None:

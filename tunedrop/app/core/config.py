@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-import json
 import os
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
 
 from dotenv import load_dotenv
 
 
-BASE_DIR = Path(__file__).resolve().parents[2]
+BASE_DIR = Path(__file__).resolve().parents[3]
 load_dotenv(BASE_DIR / ".env")
 
 
@@ -45,6 +43,8 @@ class Settings:
     spotify_cookie_file: str = os.getenv("SPOTDL_COOKIE_FILE", "")
     spotify_client_id: str = os.getenv("SPOTIFY_CLIENT_ID", "")
     spotify_client_secret: str = os.getenv("SPOTIFY_CLIENT_SECRET", "")
+    mongodb_uri: str = os.getenv("MONGODB_URI", "mongodb://localhost:27017/")
+    mongodb_database: str = os.getenv("MONGODB_DATABASE", "tunedrop")
 
     downloads_dir: Path = BASE_DIR / "downloads"
     songs_dir: Path = downloads_dir / "songs"
@@ -52,10 +52,6 @@ class Settings:
     temp_dir: Path = downloads_dir / "temp"
     zip_dir: Path = downloads_dir / "zip"
     logs_dir: Path = BASE_DIR / "logs"
-    data_dir: Path = BASE_DIR / "data"
-    users_file: Path = data_dir / "users.json"
-    cache_file: Path = data_dir / "cache.json"
-    tasks_file: Path = data_dir / "tasks.json"
     log_file: Path = logs_dir / "bot.log"
 
     def ensure_directories(self) -> None:
@@ -66,18 +62,18 @@ class Settings:
             self.temp_dir,
             self.zip_dir,
             self.logs_dir,
-            self.data_dir,
         ):
             path.mkdir(parents=True, exist_ok=True)
-        self._ensure_json_file(self.users_file, {})
-        self._ensure_json_file(self.cache_file, {})
-        self._ensure_json_file(self.tasks_file, {})
 
     def validate(self, target: RuntimeTarget = RuntimeTarget.ALL) -> None:
         missing: list[str] = []
 
         if not self.bot_token:
             missing.append("BOT_TOKEN")
+        if not self.mongodb_uri:
+            missing.append("MONGODB_URI")
+        if not self.mongodb_database:
+            missing.append("MONGODB_DATABASE")
 
         if target in {RuntimeTarget.BOT, RuntimeTarget.ALL}:
             if self.api_id <= 0:
@@ -99,12 +95,6 @@ class Settings:
             raise RuntimeError("MAX_PLAYLIST_ITEMS must be greater than 0.")
         if self.progress_update_interval <= 0:
             raise RuntimeError("PROGRESS_UPDATE_INTERVAL must be greater than 0.")
-
-    @staticmethod
-    def _ensure_json_file(path: Path, default_payload: Any) -> None:
-        if path.exists():
-            return
-        path.write_text(json.dumps(default_payload, indent=2), encoding="utf-8")
 
 
 settings = Settings()

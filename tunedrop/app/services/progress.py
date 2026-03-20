@@ -9,8 +9,7 @@ from typing import Any, Awaitable, Callable
 from pyrogram import Client
 from pyrogram.types import Message
 
-from tunedrop.app.core.config import settings
-from tunedrop.app.utils.file_utils import read_json_file, write_json_file
+from tunedrop.app.core.database import get_database
 
 
 logger = logging.getLogger(__name__)
@@ -63,7 +62,7 @@ class TaskRegistry:
             status_message=status_message,
         )
         self._tasks[user_id] = task
-        self._persist()
+        await self._persist()
 
         async def _run() -> None:
             try:
@@ -76,7 +75,7 @@ class TaskRegistry:
                 await task.update(f"Failed: {exc}")
             finally:
                 self._tasks.pop(user_id, None)
-                self._persist()
+                await self._persist()
 
         task.worker = asyncio.create_task(_run())
 
@@ -91,16 +90,27 @@ class TaskRegistry:
                 await task.worker
         return True
 
-    def _persist(self) -> None:
-        payload = {
-            str(user_id): {
-                "chat_id": item.chat_id,
-                "source": item.request.source,
-                "input_type": str(item.request.input_type),
-            }
-            for user_id, item in self._tasks.items()
-        }
-        write_json_file(settings.tasks_file, payload)
+    async def _persist(self) -> None:
+        db = get_database()
+        collection = db["active_tasks"]
+        active_user_ids = list(self._tasks.keys())
+
+        for user_id, item in self._tasks.items():
+            await collection.replace_one(
+                {"user_id": user_id},
+                {
+                    "user_id": user_id,
+                    "chat_id": item.chat_id,
+                    "source": item.request.source,
+                    "input_type": str(item.request.input_type),
+                },
+                upsert=True,
+            )
+
+        if active_user_ids:
+            await collection.delete_many({"user_id": {"$nin": active_user_ids}})
+        else:
+            await collection.delete_many({})
 
 
 task_registry = TaskRegistry()

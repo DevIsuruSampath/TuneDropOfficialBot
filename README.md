@@ -1,6 +1,6 @@
 # Telegram Music Downloader Bot
 
-Production-oriented Telegram bot built with Pyrofork, `spotdl`, `yt-dlp`, and FastAPI. It accepts Spotify tracks and playlists, YouTube and YouTube Music URLs, and `/song` search queries. Single songs are delivered as MP3 files, while playlists are packaged as ZIP archives, uploaded to a private Telegram channel, and exposed through a simple download page.
+Production-oriented Telegram bot built with Pyrofork, `spotdl`, `yt-dlp`, FastAPI, and MongoDB. It accepts Spotify tracks and playlists, YouTube and YouTube Music URLs, and `/song` search queries. Single songs are delivered as MP3 files, while playlists are packaged as ZIP archives, uploaded to a private Telegram channel, and exposed through a simple download page.
 
 ## Features
 
@@ -45,10 +45,6 @@ Production-oriented Telegram bot built with Pyrofork, `spotdl`, `yt-dlp`, and Fa
 │   └── zip/
 ├── logs/
 │   └── bot.log
-├── data/
-│   ├── users.json
-│   ├── cache.json
-│   └── tasks.json
 └── memory/
     └── YYYY-MM-DD.md
 ```
@@ -56,6 +52,7 @@ Production-oriented Telegram bot built with Pyrofork, `spotdl`, `yt-dlp`, and Fa
 ## Requirements
 
 - Python 3.12 or newer
+- MongoDB 6.0 or newer
 - `ffmpeg` installed on the VPS
 - Telegram bot token from BotFather
 - Telegram API credentials from `my.telegram.org`
@@ -78,7 +75,7 @@ sudo apt update
 sudo apt install -y ffmpeg
 ```
 
-4. Copy `.env.example` to `.env` and fill in the values.
+4. Start MongoDB and copy `.env.example` to `.env`, then fill in the values.
 
 5. Start the bot:
 
@@ -99,7 +96,7 @@ python -m tunedrop --mode all
 - YouTube and YouTube Music URLs are downloaded through `yt-dlp` and converted to MP3 with FFmpeg.
 - Single tracks are uploaded directly to the user chat.
 - Playlist ZIP files are uploaded to the configured private channel.
-- Uploaded ZIP metadata is saved in `data/cache.json`.
+- Uploaded ZIP metadata, recent file history, and active task snapshots are stored in MongoDB.
 - The FastAPI app exposes:
   - a landing page at `/download/{token}`
   - a file endpoint at `/file/{token}` that resolves the Telegram file path through the Bot API
