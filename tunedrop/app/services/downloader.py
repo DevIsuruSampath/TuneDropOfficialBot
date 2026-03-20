@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from collections import deque
 import logging
 import shlex
 import shutil
@@ -212,8 +213,16 @@ class MusicDownloadManager:
             shutil.which("spotdl") or "spotdl",
             "download",
             source,
+            "--headless",
             "--output",
             str(out_dir / "{artists} - {title}.{output-ext}"),
+            "--overwrite",
+            "skip",
+            "--threads",
+            "1",
+            "--audio",
+            "youtube-music",
+            "youtube",
             "--bitrate",
             "320k",
             "--format",
@@ -231,29 +240,63 @@ class MusicDownloadManager:
         logger.info("Running %s command: %s", name, shlex.join(cmd))
         process = await asyncio.create_subprocess_exec(
             *cmd,
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
+        recent_lines: deque[str] = deque(maxlen=5)
         try:
             while True:
                 if task.cancelled():
                     process.terminate()
                     raise asyncio.CancelledError
-                line = await process.stdout.readline()
+                try:
+                    line = await asyncio.wait_for(
+                        process.stdout.readline(),
+                        timeout=settings.spotdl_inactivity_timeout_seconds,
+                    )
+                except asyncio.TimeoutError as exc:
+                    process.terminate()
+                    last_detail = recent_lines[-1] if recent_lines else "No output was produced."
+                    raise RuntimeError(
+                        f"{name} stalled after {int(settings.spotdl_inactivity_timeout_seconds)} seconds. "
+                        f"Last output: {last_detail}"
+                    ) from exc
                 if not line:
                     break
                 text = line.decode("utf-8", errors="replace").strip()
                 if text:
+                    recent_lines.append(text)
                     logger.info("%s: %s", name, text)
-                    lowered = text.lower()
-                    if "downloading" in lowered or "converting" in lowered or "processing" in lowered:
-                        await task.update(text[:4000])
+                    progress_text = self._map_subprocess_progress(name, text)
+                    if progress_text:
+                        await task.update(progress_text[:4000])
             code = await process.wait()
             if code != 0:
-                raise RuntimeError(f"{name} exited with code {code}")
+                last_detail = recent_lines[-1] if recent_lines else "No error details captured."
+                raise RuntimeError(f"{name} exited with code {code}. Last output: {last_detail}")
         finally:
             with contextlib.suppress(ProcessLookupError):
                 process.kill()
+
+    def _map_subprocess_progress(self, name: str, text: str) -> str | None:
+        lowered = text.lower()
+        if name != "spotdl":
+            if "downloading" in lowered or "converting" in lowered or "processing" in lowered:
+                return text
+            return None
+
+        if "processing query" in lowered:
+            return "Resolving Spotify track..."
+        if "found" in lowered and ("youtube" in lowered or "youtube music" in lowered):
+            return "Matched Spotify track to an audio source..."
+        if "downloading" in lowered:
+            return text
+        if "converting" in lowered:
+            return "Converting audio to MP3..."
+        if "skipping" in lowered:
+            return text
+        return None
 
     async def _run_ytdlp_download(self, task: DownloadTask, url: str, out_dir: Path) -> Path:
         loop = asyncio.get_running_loop()

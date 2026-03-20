@@ -31,6 +31,7 @@ class Settings:
     download_speed_kbps: float = float(os.getenv("DEFAULT_USER_SPEED_KBPS", "100"))
     max_playlist_items: int = int(os.getenv("MAX_PLAYLIST_ITEMS", "100"))
     progress_update_interval: float = float(os.getenv("PROGRESS_UPDATE_INTERVAL", "2.5"))
+    spotdl_inactivity_timeout_seconds: float = float(os.getenv("SPOTDL_INACTIVITY_TIMEOUT_SECONDS", "180"))
     auto_cleanup_minutes: int = int(os.getenv("AUTO_CLEANUP_MINUTES", "30"))
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
     admin_user_ids: set[int] = field(
@@ -97,6 +98,8 @@ class Settings:
             raise RuntimeError("MAX_PLAYLIST_ITEMS must be greater than 0.")
         if self.progress_update_interval <= 0:
             raise RuntimeError("PROGRESS_UPDATE_INTERVAL must be greater than 0.")
+        if self.spotdl_inactivity_timeout_seconds <= 0:
+            raise RuntimeError("SPOTDL_INACTIVITY_TIMEOUT_SECONDS must be greater than 0.")
 
 
 settings = Settings()
