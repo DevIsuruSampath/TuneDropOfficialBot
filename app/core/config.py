@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,12 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(BASE_DIR / ".env")
+
+
+class RuntimeTarget(StrEnum):
+    BOT = "bot"
+    WEB = "web"
+    ALL = "all"
 
 
 @dataclass(slots=True)
@@ -66,16 +73,19 @@ class Settings:
         self._ensure_json_file(self.cache_file, {})
         self._ensure_json_file(self.tasks_file, {})
 
-    def validate(self) -> None:
+    def validate(self, target: RuntimeTarget = RuntimeTarget.ALL) -> None:
         missing: list[str] = []
-        if self.api_id <= 0:
-            missing.append("API_ID")
-        if not self.api_hash:
-            missing.append("API_HASH")
+
         if not self.bot_token:
             missing.append("BOT_TOKEN")
-        if self.private_channel_id == 0:
-            missing.append("PRIVATE_CHANNEL_ID")
+
+        if target in {RuntimeTarget.BOT, RuntimeTarget.ALL}:
+            if self.api_id <= 0:
+                missing.append("API_ID")
+            if not self.api_hash:
+                missing.append("API_HASH")
+            if self.private_channel_id == 0:
+                missing.append("PRIVATE_CHANNEL_ID")
 
         if missing:
             raise RuntimeError(

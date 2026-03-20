@@ -10,6 +10,7 @@ def setup_logging() -> None:
     logging.basicConfig(
         level=getattr(logging, settings.log_level.upper(), logging.INFO),
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        force=True,
         handlers=[
             logging.FileHandler(settings.log_file, encoding="utf-8"),
             logging.StreamHandler(),

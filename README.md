@@ -28,6 +28,7 @@ Production-oriented Telegram bot built with Pyrofork, `spotdl`, `yt-dlp`, and Fa
 ├── requirements.txt
 ├── app/
 │   ├── __init__.py
+│   ├── runtime.py
 │   ├── core/
 │   │   ├── __init__.py
 │   │   ├── client.py
@@ -41,10 +42,8 @@ Production-oriented Telegram bot built with Pyrofork, `spotdl`, `yt-dlp`, and Fa
 ├── tunedrop/
 │   ├── __init__.py
 │   ├── __main__.py
-│   ├── app.py
-│   ├── bot.py
 │   ├── cli.py
-│   └── web.py
+│   └── ...
 ├── downloads/
 │   ├── songs/
 │   ├── playlists/
@@ -62,7 +61,7 @@ Production-oriented Telegram bot built with Pyrofork, `spotdl`, `yt-dlp`, and Fa
 
 ## Requirements
 
-- Python 3.11 or newer
+- Python 3.12 or newer
 - `ffmpeg` installed on the VPS
 - Telegram bot token from BotFather
 - Telegram API credentials from `my.telegram.org`
@@ -87,10 +86,17 @@ sudo apt install -y ffmpeg
 
 4. Copy `.env.example` to `.env` and fill in the values.
 
-5. Start the full project:
+5. Start the bot:
 
 ```bash
 python -m tunedrop
+```
+
+6. Optional runtime modes:
+
+```bash
+python -m tunedrop --mode web
+python -m tunedrop --mode all
 ```
 
 ## How It Works
