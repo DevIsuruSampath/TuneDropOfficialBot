@@ -12,6 +12,7 @@ from pyrogram import Client
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from tunedrop.app.core.database import get_database
+from tunedrop.app.utils.ui_utils import build_cancel_keyboard, build_error_message, build_retry_keyboard
 
 
 logger = logging.getLogger(__name__)
@@ -19,8 +20,8 @@ logger = logging.getLogger(__name__)
 
 DownloadCallable = Callable[[Client, Message, "DownloadTask"], Awaitable[None]]
 
-_CANCEL_MARKUP = InlineKeyboardMarkup([[InlineKeyboardButton("Cancel", callback_data="cancel")]])
-_RETRY_MARKUP = InlineKeyboardMarkup([[InlineKeyboardButton("Try Again", callback_data="retry")]])
+_CANCEL_MARKUP = build_cancel_keyboard()
+_RETRY_MARKUP = build_retry_keyboard()
 
 
 @dataclass(slots=True)
@@ -35,14 +36,14 @@ class DownloadTask:
     _reply_markup: InlineKeyboardMarkup | None = field(default=None, repr=False)
     _last_markup: InlineKeyboardMarkup | None = field(default=None, repr=False)
 
-    async def update(self, text: str) -> None:
+    async def update(self, text: str, parse_mode: str | None = None) -> None:
         if text == self.last_text and self._reply_markup is self._last_markup:
             return
         self.last_text = text
         self._last_markup = self._reply_markup
         try:
             await self.status_message.edit_text(
-                text, disable_web_page_preview=True, reply_markup=self._reply_markup,
+                text, disable_web_page_preview=True, reply_markup=self._reply_markup, parse_mode=parse_mode,
             )
         except Exception:
             logger.debug("Failed to update status message for user %s", self.user_id, exc_info=True)
@@ -78,12 +79,16 @@ class TaskRegistry:
 
         if existing:
             await message.reply_text(
-                "\u23f3 You already have a running task.",
+                "<b>⏳ You already have a running task.</b>",
                 reply_markup=_CANCEL_MARKUP,
+                parse_mode="HTML",
             )
             return
 
-        status_message = await message.reply_text("\U0001f3a4 Queued your download request...")
+        status_message = await message.reply_text(
+            "<b>🎤 Queued your download request...</b>",
+            parse_mode="HTML",
+        )
         task = DownloadTask(
             user_id=user_id,
             chat_id=request.chat_id,
@@ -108,7 +113,7 @@ class TaskRegistry:
 
         request, runner, app = failed
         try:
-            await message.edit_text("\U0001f504 Retrying...", reply_markup=_CANCEL_MARKUP)
+            await message.edit_text("<b>🔄 Retrying...</b>", reply_markup=_CANCEL_MARKUP, parse_mode="HTML")
         except Exception:
             return False
 
@@ -127,13 +132,12 @@ class TaskRegistry:
     async def _run(self, app: Client, message: Message, task: DownloadTask, request: Any, runner: DownloadCallable) -> None:
         try:
             await runner(app, message, task)
-            # Strip cancel button from final success message
             task._reply_markup = None
-            await task.update(task.last_text)
+            await task.update(task.last_text, parse_mode="HTML")
         except asyncio.CancelledError:
             task._reply_markup = None
             try:
-                await task.update("\u274c Task cancelled.")
+                await task.update("<b>❌ Task cancelled.</b>", parse_mode="HTML")
             except asyncio.CancelledError:
                 pass
             raise
@@ -141,7 +145,7 @@ class TaskRegistry:
             logger.exception("Download task failed for user %s", task.user_id)
             self._failed[task.user_id] = (request, runner, app)
             task._reply_markup = _RETRY_MARKUP
-            await task.update(f"\u26a0\ufe0f Failed: {exc}")
+            await task.update(build_error_message(str(exc)), parse_mode="HTML")
         finally:
             self._tasks.pop(task.user_id, None)
             await self._persist()

@@ -17,9 +17,8 @@ def register(app: Client) -> None:
     async def cancel_handler(_, message):
         user = message.from_user
         if not user:
-            await message.reply_text("\u2753 User not found.")
+            await message.reply_text("<b>❓ User not found.</b>", parse_mode="HTML")
             return
         cancelled = await task_registry.cancel(user.id)
-        await message.reply_text(
-            "\u274c Task cancelled." if cancelled else "\u2753 No active task to cancel."
-        )
+        text = "<b>❌ Task cancelled.</b>" if cancelled else "<b>❓ No active task to cancel.</b>"
+        await message.reply_text(text, parse_mode="HTML")
