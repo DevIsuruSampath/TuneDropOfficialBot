@@ -59,7 +59,7 @@ class LinkStore:
             db["user_files"]
             .find({"user_id": user_id}, projection={"_id": 0, "created_at": 0, "user_id": 0})
             .sort("created_at", -1)
-            .to_list(length=20)
+            .to_list(length=10)
         )
         return rows
 

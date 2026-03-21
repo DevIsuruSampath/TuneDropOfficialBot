@@ -97,7 +97,7 @@ class MusicDownloadManager:
             await self._download_spotify_track(app, message, task)
 
     async def _download_spotify_track(self, app: Client, message: Message, task: DownloadTask) -> None:
-        work_dir = ensure_clean_directory(settings.temp_dir / f"{task.user_id}_{int(time.time())}")
+        work_dir = await ensure_clean_directory(settings.temp_dir / f"{task.user_id}_{int(time.time())}")
         try:
             await task.update("Downloading track with spotdl...")
             try:
@@ -125,7 +125,7 @@ class MusicDownloadManager:
                     raise RuntimeError(f"spotdl did not produce an MP3 file. Last output: {detail}")
                 raise RuntimeError("spotdl did not produce an MP3 file.")
 
-            metadata = read_audio_metadata(audio_file, fallback_title=audio_file.stem)
+            metadata = await read_audio_metadata(audio_file, fallback_title=audio_file.stem)
             await task.update("Uploading track to Telegram...")
             await self._send_audio(app, message, audio_file, metadata)
             await task.update("Completed.")
@@ -134,7 +134,7 @@ class MusicDownloadManager:
 
     async def _download_spotify_playlist(self, app: Client, message: Message, task: DownloadTask) -> None:
         safe_name = sanitize_filename(f"spotify_playlist_{task.user_id}_{int(time.time())}")
-        playlist_dir = ensure_clean_directory(settings.playlists_dir / safe_name)
+        playlist_dir = await ensure_clean_directory(settings.playlists_dir / safe_name)
         zip_path = settings.zip_dir / f"{safe_name}.zip"
         try:
             await task.update("Downloading playlist with spotdl...")
@@ -183,7 +183,7 @@ class MusicDownloadManager:
             await self._download_youtube_track(app, message, task, info)
 
     async def _download_youtube_track(self, app: Client, message: Message, task: DownloadTask, info: dict[str, Any]) -> None:
-        work_dir = ensure_clean_directory(settings.temp_dir / f"yt_{task.user_id}_{int(time.time())}")
+        work_dir = await ensure_clean_directory(settings.temp_dir / f"yt_{task.user_id}_{int(time.time())}")
         thumb_path: Path | None = None
         try:
             await task.update("Downloading audio from YouTube...")
@@ -191,7 +191,7 @@ class MusicDownloadManager:
             thumb_url = info.get("thumbnail")
             if thumb_url:
                 thumb_path = await extract_thumbnail_from_url(thumb_url, work_dir / "thumb.jpg")
-            metadata = read_audio_metadata(
+            metadata = await read_audio_metadata(
                 audio_file,
                 fallback_title=str(info.get("title") or audio_file.stem),
                 fallback_artist=str(info.get("uploader") or info.get("channel") or "Unknown Artist"),
@@ -205,7 +205,7 @@ class MusicDownloadManager:
 
     async def _download_youtube_playlist(self, app: Client, message: Message, task: DownloadTask, info: dict[str, Any]) -> None:
         title = sanitize_filename(str(info.get("title") or f"youtube_playlist_{task.user_id}"))
-        playlist_dir = ensure_clean_directory(settings.playlists_dir / f"{title}_{int(time.time())}")
+        playlist_dir = await ensure_clean_directory(settings.playlists_dir / f"{title}_{int(time.time())}")
         zip_path = settings.zip_dir / f"{playlist_dir.name}.zip"
         try:
             await task.update("Downloading YouTube playlist...")
@@ -400,7 +400,8 @@ class MusicDownloadManager:
         for text in reversed(lines):
             match = re.search(r"https?://(?:www\.)?(?:youtube\.com|youtu\.be)\S+", text)
             if match:
-                return match.group(0)
+                url = match.group(0).rstrip(".,;:!)\"]'")
+                return url
         return None
 
     def _is_ytmusic_connectivity_failure(self, result: SubprocessResult) -> bool:
@@ -433,9 +434,9 @@ class MusicDownloadManager:
                 downloaded = payload.get("downloaded_bytes") or 0
                 percent = (downloaded / total * 100) if total else 0
                 text = f"Downloading from YouTube: {percent:.1f}%"
-                loop.call_soon_threadsafe(lambda: asyncio.ensure_future(task.update(text)))
+                asyncio.run_coroutine_threadsafe(task.update(text), loop)
             elif status == "finished":
-                loop.call_soon_threadsafe(lambda: asyncio.ensure_future(task.update("Converting downloaded audio to MP3...")))
+                asyncio.run_coroutine_threadsafe(task.update("Converting downloaded audio to MP3..."), loop)
 
         output_template = str(out_dir / "%(title)s.%(ext)s")
         ydl_opts = {
@@ -464,7 +465,7 @@ class MusicDownloadManager:
                 raise RuntimeError("yt-dlp did not produce an MP3 file.")
             return file_path
 
-        return await asyncio.to_thread(_download)
+        return await asyncio.wait_for(asyncio.to_thread(_download), timeout=600)
 
     async def _run_ytdlp_playlist(self, task: DownloadTask, url: str, out_dir: Path) -> None:
         loop = asyncio.get_running_loop()
@@ -472,10 +473,9 @@ class MusicDownloadManager:
         def progress_hook(payload: dict[str, Any]) -> None:
             if payload.get("status") == "downloading":
                 filename = Path(str(payload.get("filename") or "")).name
-                loop.call_soon_threadsafe(
-                    lambda: asyncio.ensure_future(
-                        task.update(f"Downloading playlist item: {filename or 'current track'}")
-                    ),
+                asyncio.run_coroutine_threadsafe(
+                    task.update(f"Downloading playlist item: {filename or 'current track'}"),
+                    loop,
                 )
 
         ydl_opts = {
@@ -500,7 +500,7 @@ class MusicDownloadManager:
             with YoutubeDL(ydl_opts) as ydl:
                 ydl.download([url])
 
-        await asyncio.to_thread(_download)
+        await asyncio.wait_for(asyncio.to_thread(_download), timeout=1800)
 
 
 download_manager = MusicDownloadManager()

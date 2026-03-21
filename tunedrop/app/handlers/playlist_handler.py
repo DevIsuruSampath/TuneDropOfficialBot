@@ -19,7 +19,7 @@ def register(app: Client) -> None:
             return
 
         lines = ["Your recent playlist files:"]
-        for item in files[:10]:
+        for item in files:
             lines.append(
                 f"- {item['name']} | {item['size_text']} | {item['link']}"
             )

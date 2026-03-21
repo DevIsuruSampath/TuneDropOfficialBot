@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 import ffmpeg
@@ -10,6 +11,10 @@ MAX_THUMBNAIL_SIZE = 5 * 1024 * 1024  # 5 MB
 
 def probe_audio(file_path: Path) -> dict:
     return ffmpeg.probe(str(file_path))
+
+
+async def async_probe_audio(file_path: Path) -> dict:
+    return await asyncio.to_thread(probe_audio, file_path)
 
 
 async def extract_thumbnail_from_url(url: str, out_path: Path) -> Path | None:
@@ -23,5 +28,5 @@ async def extract_thumbnail_from_url(url: str, out_path: Path) -> Path | None:
                 if size > MAX_THUMBNAIL_SIZE:
                     return None
                 chunks.append(chunk)
-            out_path.write_bytes(b"".join(chunks))
+            await asyncio.to_thread(out_path.write_bytes, b"".join(chunks))
             return out_path

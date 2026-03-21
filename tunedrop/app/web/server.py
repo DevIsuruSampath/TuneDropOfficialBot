@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import quote
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -16,9 +18,31 @@ from tunedrop.app.utils.time_utils import estimate_download_time, format_bytes, 
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
+_http_client: httpx.AsyncClient | None = None
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    global _http_client
+    _http_client = httpx.AsyncClient(
+        timeout=httpx.Timeout(connect=15, read=120, write=30, pool=10),
+        follow_redirects=True,
+    )
+    try:
+        yield
+    finally:
+        await _http_client.aclose()
+        _http_client = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    if _http_client is None:
+        raise RuntimeError("HTTP client is not initialized.")
+    return _http_client
+
 
 def create_web_app() -> FastAPI:
-    app = FastAPI(title="Telegram Music Downloader")
+    app = FastAPI(title="Telegram Music Downloader", lifespan=_lifespan)
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
     @app.get("/health")
@@ -50,31 +74,40 @@ def create_web_app() -> FastAPI:
 
         file_id = item["file_id"]
         file_name = item.get("file_name", "download.zip")
+        file_size = item.get("file_size")
 
-        file_bytes = await fetch_telegram_file(file_id)
-        if file_bytes is None:
+        file_url = await resolve_telegram_file_url(file_id)
+        if file_url is None:
             raise HTTPException(status_code=502, detail="Failed to fetch file from Telegram")
 
-        return Response(
-            content=file_bytes,
+        headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(file_name)}"}
+        if file_size is not None:
+            headers["Content-Length"] = str(int(file_size))
+
+        return StreamingResponse(
+            stream_telegram_file(file_url),
             media_type="application/octet-stream",
-            headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+            headers=headers,
         )
 
     return app
 
 
-async def fetch_telegram_file(file_id: str) -> bytes | None:
+async def resolve_telegram_file_url(file_id: str) -> str | None:
+    client = _get_client()
     api_url = f"https://api.telegram.org/bot{settings.bot_token}/getFile"
-    async with httpx.AsyncClient(timeout=30) as client:
-        response = await client.get(api_url, params={"file_id": file_id})
-        response.raise_for_status()
-        payload = response.json()
+    response = await client.get(api_url, params={"file_id": file_id})
+    response.raise_for_status()
+    payload = response.json()
     if not payload.get("ok"):
         return None
     file_path = payload["result"]["file_path"]
-    file_url = f"https://api.telegram.org/file/bot{settings.bot_token}/{file_path}"
-    async with httpx.AsyncClient(timeout=120) as client:
-        response = await client.get(file_url)
+    return f"https://api.telegram.org/file/bot{settings.bot_token}/{file_path}"
+
+
+async def stream_telegram_file(url: str):
+    client = _get_client()
+    async with client.stream("GET", url) as response:
         response.raise_for_status()
-        return response.content
+        async for chunk in response.aiter_bytes(chunk_size=65536):
+            yield chunk

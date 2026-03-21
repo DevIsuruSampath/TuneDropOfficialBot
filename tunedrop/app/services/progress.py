@@ -4,8 +4,10 @@ import asyncio
 import contextlib
 import logging
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any, Awaitable, Callable
 
+from pymongo import UpdateOne
 from pyrogram import Client
 from pyrogram.types import Message
 
@@ -36,7 +38,6 @@ class DownloadTask:
             await self.status_message.edit_text(text, disable_web_page_preview=True)
         except Exception:
             logger.debug("Failed to update status message for user %s", self.user_id, exc_info=True)
-            await self.status_message.edit_text(text, disable_web_page_preview=True)
 
     def cancelled(self) -> bool:
         return self.cancel_event.is_set()
@@ -96,19 +97,28 @@ class TaskRegistry:
     async def _persist(self) -> None:
         db = get_database()
         collection = db["active_tasks"]
+        now = datetime.now(UTC)
         active_user_ids = list(self._tasks.keys())
 
-        for user_id, item in self._tasks.items():
-            await collection.replace_one(
+        operations = [
+            UpdateOne(
                 {"user_id": user_id},
                 {
-                    "user_id": user_id,
-                    "chat_id": item.chat_id,
-                    "source": item.request.source,
-                    "input_type": str(item.request.input_type),
+                    "$set": {
+                        "user_id": user_id,
+                        "chat_id": item.chat_id,
+                        "source": item.request.source,
+                        "input_type": str(item.request.input_type),
+                        "created_at": now,
+                    },
                 },
                 upsert=True,
             )
+            for user_id, item in self._tasks.items()
+        ]
+
+        if operations:
+            await collection.bulk_write(operations)
 
         if active_user_ids:
             await collection.delete_many({"user_id": {"$nin": active_user_ids}})

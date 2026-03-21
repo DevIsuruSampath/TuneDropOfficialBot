@@ -5,12 +5,6 @@ from typing import Any
 from pyrogram.types import Message
 
 
-async def edit_or_reply(message: Message, text: str, **kwargs: Any) -> Message:
-    if message.outgoing:
-        return await message.edit_text(text, **kwargs)
-    return await message.reply_text(text, **kwargs)
-
-
 def command_argument(message: Message) -> str:
     if not message.text:
         return ""

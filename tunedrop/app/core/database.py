@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 
 from pymongo import ASCENDING, DESCENDING, AsyncMongoClient
 
@@ -10,12 +11,15 @@ from tunedrop.app.core.config import settings
 _client: AsyncMongoClient | None = None
 _database = None
 _init_lock: asyncio.Lock | None = None
+_thread_lock = threading.Lock()
 
 
 def _get_lock() -> asyncio.Lock:
     global _init_lock
     if _init_lock is None:
-        _init_lock = asyncio.Lock()
+        with _thread_lock:
+            if _init_lock is None:
+                _init_lock = asyncio.Lock()
     return _init_lock
 
 
@@ -37,7 +41,9 @@ async def init_database():
         await database["file_links"].create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
         await database["file_links"].create_index("created_at", expireAfterSeconds=86400)
         await database["user_files"].create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
+        await database["user_files"].create_index("created_at", expireAfterSeconds=86400)
         await database["active_tasks"].create_index([("user_id", ASCENDING)], unique=True)
+        await database["active_tasks"].create_index("created_at", expireAfterSeconds=86400)
 
         _client = client
         _database = database

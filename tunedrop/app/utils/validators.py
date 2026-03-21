@@ -40,10 +40,6 @@ def classify_input(value: str) -> InputType:
     return InputType.UNKNOWN
 
 
-def is_supported_input(value: str) -> bool:
-    return classify_input(value) != InputType.UNKNOWN
-
-
 def is_supported_url(value: str) -> bool:
     input_type = classify_input(value)
     return input_type not in {InputType.UNKNOWN, InputType.SEARCH}
