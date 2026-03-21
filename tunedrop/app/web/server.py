@@ -4,7 +4,7 @@ from pathlib import Path
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -36,6 +36,7 @@ def create_web_app() -> FastAPI:
             "request": request,
             "file_name": item["file_name"],
             "size_text": format_bytes(size_bytes),
+            "speed_kbps": f"{settings.download_speed_kbps:.0f}",
             "estimated_time": format_seconds(estimate_download_time(size_bytes, settings.download_speed_kbps)),
             "direct_link": f"/file/{token}",
         }
@@ -47,19 +48,33 @@ def create_web_app() -> FastAPI:
         if not item:
             raise HTTPException(status_code=404, detail="File not found")
 
-        telegram_url = await resolve_telegram_file_url(item["file_id"])
-        return RedirectResponse(telegram_url)
+        file_id = item["file_id"]
+        file_name = item.get("file_name", "download.zip")
+
+        file_bytes = await fetch_telegram_file(file_id)
+        if file_bytes is None:
+            raise HTTPException(status_code=502, detail="Failed to fetch file from Telegram")
+
+        return Response(
+            content=file_bytes,
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{file_name}"'},
+        )
 
     return app
 
 
-async def resolve_telegram_file_url(file_id: str) -> str:
+async def fetch_telegram_file(file_id: str) -> bytes | None:
     api_url = f"https://api.telegram.org/bot{settings.bot_token}/getFile"
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.get(api_url, params={"file_id": file_id})
         response.raise_for_status()
         payload = response.json()
     if not payload.get("ok"):
-        raise HTTPException(status_code=502, detail="Telegram getFile failed")
+        return None
     file_path = payload["result"]["file_path"]
-    return f"https://api.telegram.org/file/bot{settings.bot_token}/{file_path}"
+    file_url = f"https://api.telegram.org/file/bot{settings.bot_token}/{file_path}"
+    async with httpx.AsyncClient(timeout=120) as client:
+        response = await client.get(file_url)
+        response.raise_for_status()
+        return response.content

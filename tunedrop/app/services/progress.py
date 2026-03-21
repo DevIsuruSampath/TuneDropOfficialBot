@@ -32,7 +32,10 @@ class DownloadTask:
         if text == self.last_text:
             return
         self.last_text = text
-        with contextlib.suppress(Exception):
+        try:
+            await self.status_message.edit_text(text, disable_web_page_preview=True)
+        except Exception:
+            logger.debug("Failed to update status message for user %s", self.user_id, exc_info=True)
             await self.status_message.edit_text(text, disable_web_page_preview=True)
 
     def cancelled(self) -> bool:

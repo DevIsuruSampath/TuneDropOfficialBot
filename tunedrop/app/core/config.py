@@ -18,27 +18,41 @@ class RuntimeTarget(StrEnum):
     ALL = "all"
 
 
+def _safe_int(value: str, default: int) -> int:
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
+
+
+def _safe_float(value: str, default: float) -> float:
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
 @dataclass(slots=True)
 class Settings:
-    api_id: int = int(os.getenv("API_ID", "0"))
+    api_id: int = _safe_int(os.getenv("API_ID", ""), 0)
     api_hash: str = os.getenv("API_HASH", "")
     bot_token: str = os.getenv("BOT_TOKEN", "")
-    private_channel_id: int = int(os.getenv("PRIVATE_CHANNEL_ID", "0"))
+    private_channel_id: int = _safe_int(os.getenv("PRIVATE_CHANNEL_ID", ""), 0)
     bot_session_name: str = os.getenv("BOT_SESSION_NAME", "music_downloader_bot")
     download_base_url: str = os.getenv("DOWNLOAD_BASE_URL", "http://127.0.0.1:8080")
     web_host: str = os.getenv("WEB_HOST", "0.0.0.0")
-    web_port: int = int(os.getenv("WEB_PORT", "8080"))
-    download_speed_kbps: float = float(os.getenv("DEFAULT_USER_SPEED_KBPS", "100"))
-    max_playlist_items: int = int(os.getenv("MAX_PLAYLIST_ITEMS", "100"))
-    progress_update_interval: float = float(os.getenv("PROGRESS_UPDATE_INTERVAL", "2.5"))
-    spotdl_inactivity_timeout_seconds: float = float(os.getenv("SPOTDL_INACTIVITY_TIMEOUT_SECONDS", "180"))
-    auto_cleanup_minutes: int = int(os.getenv("AUTO_CLEANUP_MINUTES", "30"))
+    web_port: int = _safe_int(os.getenv("WEB_PORT", "8080"), 8080)
+    download_speed_kbps: float = _safe_float(os.getenv("DEFAULT_USER_SPEED_KBPS", "100"), 100.0)
+    max_playlist_items: int = _safe_int(os.getenv("MAX_PLAYLIST_ITEMS", "100"), 100)
+    progress_update_interval: float = _safe_float(os.getenv("PROGRESS_UPDATE_INTERVAL", "2.5"), 2.5)
+    spotdl_inactivity_timeout_seconds: float = _safe_float(os.getenv("SPOTDL_INACTIVITY_TIMEOUT_SECONDS", "180"), 180.0)
+    auto_cleanup_minutes: int = _safe_int(os.getenv("AUTO_CLEANUP_MINUTES", "30"), 30)
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
     admin_user_ids: set[int] = field(
         default_factory=lambda: {
-            int(value.strip())
+            _safe_int(value.strip(), 0)
             for value in os.getenv("ADMIN_USER_IDS", "").split(",")
-            if value.strip()
+            if value.strip() and _safe_int(value.strip(), 0) > 0
         }
     )
     spotify_cookie_file: str = os.getenv("SPOTDL_COOKIE_FILE", "")

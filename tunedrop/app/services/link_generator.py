@@ -39,15 +39,17 @@ class LinkStore:
 
         stale_entries = await (
             db["user_files"]
-            .find({"user_id": user_id}, projection={"_id": 1})
+            .find({"user_id": user_id}, projection={"_id": 1, "token": 1})
             .sort("created_at", -1)
             .skip(20)
             .to_list(length=None)
         )
         if stale_entries:
+            stale_tokens = [entry["token"] for entry in stale_entries]
             await db["user_files"].delete_many(
                 {"_id": {"$in": [entry["_id"] for entry in stale_entries]}}
             )
+            await db["file_links"].delete_many({"token": {"$in": stale_tokens}})
 
         return link
 

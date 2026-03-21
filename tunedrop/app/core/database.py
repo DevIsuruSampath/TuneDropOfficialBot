@@ -9,7 +9,14 @@ from tunedrop.app.core.config import settings
 
 _client: AsyncMongoClient | None = None
 _database = None
-_init_lock = asyncio.Lock()
+_init_lock: asyncio.Lock | None = None
+
+
+def _get_lock() -> asyncio.Lock:
+    global _init_lock
+    if _init_lock is None:
+        _init_lock = asyncio.Lock()
+    return _init_lock
 
 
 async def init_database():
@@ -18,7 +25,7 @@ async def init_database():
     if _database is not None:
         return _database
 
-    async with _init_lock:
+    async with _get_lock():
         if _database is not None:
             return _database
 
@@ -28,6 +35,7 @@ async def init_database():
 
         await database["file_links"].create_index([("token", ASCENDING)], unique=True)
         await database["file_links"].create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
+        await database["file_links"].create_index("created_at", expireAfterSeconds=86400)
         await database["user_files"].create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
         await database["active_tasks"].create_index([("user_id", ASCENDING)], unique=True)
 

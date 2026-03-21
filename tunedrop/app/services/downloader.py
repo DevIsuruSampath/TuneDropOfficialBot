@@ -359,6 +359,7 @@ class MusicDownloadManager:
         finally:
             with contextlib.suppress(ProcessLookupError):
                 process.kill()
+            await process.wait()
 
     def _map_subprocess_progress(self, name: str, text: str) -> str | None:
         lowered = text.lower()
@@ -424,7 +425,6 @@ class MusicDownloadManager:
 
     async def _run_ytdlp_download(self, task: DownloadTask, url: str, out_dir: Path) -> Path:
         loop = asyncio.get_running_loop()
-        result: dict[str, Any] = {}
 
         def progress_hook(payload: dict[str, Any]) -> None:
             status = payload.get("status")
@@ -433,9 +433,9 @@ class MusicDownloadManager:
                 downloaded = payload.get("downloaded_bytes") or 0
                 percent = (downloaded / total * 100) if total else 0
                 text = f"Downloading from YouTube: {percent:.1f}%"
-                loop.call_soon_threadsafe(asyncio.create_task, task.update(text))
+                loop.call_soon_threadsafe(lambda: asyncio.ensure_future(task.update(text)))
             elif status == "finished":
-                loop.call_soon_threadsafe(asyncio.create_task, task.update("Converting downloaded audio to MP3..."))
+                loop.call_soon_threadsafe(lambda: asyncio.ensure_future(task.update("Converting downloaded audio to MP3...")))
 
         output_template = str(out_dir / "%(title)s.%(ext)s")
         ydl_opts = {
@@ -473,8 +473,9 @@ class MusicDownloadManager:
             if payload.get("status") == "downloading":
                 filename = Path(str(payload.get("filename") or "")).name
                 loop.call_soon_threadsafe(
-                    asyncio.create_task,
-                    task.update(f"Downloading playlist item: {filename or 'current track'}"),
+                    lambda: asyncio.ensure_future(
+                        task.update(f"Downloading playlist item: {filename or 'current track'}")
+                    ),
                 )
 
         ydl_opts = {
