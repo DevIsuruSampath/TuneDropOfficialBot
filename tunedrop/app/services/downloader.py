@@ -102,24 +102,30 @@ class MusicDownloadManager:
             await task.update("\U0001f3b5 Searching for your track...")
 
             spotdl_result: SubprocessResult | None = None
-            try:
-                spotdl_result = await self._run_spotdl(task, task.request.source, work_dir, playlist=False)
-            except SubprocessFailure as exc:
-                spotdl_result = exc.result
-                logger.warning("spotdl failed: %s", exc)
+            if task.request.input_type != InputType.SEARCH:
+                try:
+                    spotdl_result = await self._run_spotdl(task, task.request.source, work_dir, playlist=False)
+                except SubprocessFailure as exc:
+                    spotdl_result = exc.result
+                    logger.warning("spotdl failed: %s", exc)
 
             audio_file = find_first_file(work_dir, suffix=".mp3")
 
-            if not audio_file and spotdl_result:
-                yt_url = self._extract_youtube_url(spotdl_result)
-                if not yt_url and task.request.input_type == InputType.SEARCH:
+            if not audio_file:
+                yt_url: str | None = None
+                if spotdl_result:
+                    yt_url = self._extract_youtube_url(spotdl_result)
+                if not yt_url:
                     yt_url = f"ytsearch1:{task.request.source}"
                 if yt_url:
-                    await task.update("\U0001f504 Trying alternative source...")
+                    if task.request.input_type == InputType.SEARCH:
+                        await task.update("\U0001f3b5 Searching YouTube...")
+                    else:
+                        await task.update("\U0001f504 Trying alternative source...")
                     try:
                         await self._run_ytdlp_download(task, yt_url, work_dir)
                     except Exception:
-                        logger.exception("yt-dlp fallback also failed")
+                        logger.exception("yt-dlp download failed")
                     audio_file = find_first_file(work_dir, suffix=".mp3")
 
             if not audio_file:
@@ -286,6 +292,8 @@ class MusicDownloadManager:
             cmd.extend(["--cookie-file", settings.spotify_cookie_file])
         return await self._run_subprocess(task, cmd, "spotdl")
 
+    _FIRST_OUTPUT_TIMEOUT: int = 60
+
     async def _run_subprocess(self, task: DownloadTask, cmd: list[str], name: str) -> SubprocessResult:
         logger.info("Running %s command: %s", name, shlex.join(cmd))
         process = await asyncio.create_subprocess_exec(
@@ -296,24 +304,27 @@ class MusicDownloadManager:
         )
         recent_lines: deque[str] = deque(maxlen=50)
         error_lines: deque[str] = deque(maxlen=20)
+        has_output = False
         try:
             while True:
                 if task.cancelled():
                     process.terminate()
                     raise asyncio.CancelledError
+                timeout = settings.spotdl_inactivity_timeout_seconds if has_output else self._FIRST_OUTPUT_TIMEOUT
                 try:
                     line = await asyncio.wait_for(
                         process.stdout.readline(),
-                        timeout=settings.spotdl_inactivity_timeout_seconds,
+                        timeout=timeout,
                     )
                 except asyncio.TimeoutError as exc:
                     process.terminate()
                     last_detail = recent_lines[-1] if recent_lines else "No output was produced."
                     raise SubprocessFailure(
-                        f"{name} stalled after {int(settings.spotdl_inactivity_timeout_seconds)} seconds. "
+                        f"{name} stalled after {int(timeout)} seconds. "
                         f"Last output: {last_detail}",
                         SubprocessResult(recent_lines=tuple(recent_lines), error_lines=tuple(error_lines)),
                     ) from exc
+                has_output = True
                 if not line:
                     break
                 text = line.decode("utf-8", errors="replace").strip()
