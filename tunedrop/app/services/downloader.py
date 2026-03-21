@@ -441,7 +441,7 @@ class MusicDownloadManager:
         output_template = str(out_dir / "%(title)s.%(ext)s")
         ydl_opts = {
             **_base_ytdlp_opts(),
-            "format": "bestaudio/best",
+            "format": "bestaudio",
             "extractaudio": True,
             "outtmpl": output_template,
             "noplaylist": True,
@@ -492,7 +492,7 @@ class MusicDownloadManager:
 
         ydl_opts = {
             **_base_ytdlp_opts(),
-            "format": "bestaudio/best",
+            "format": "bestaudio",
             "extractaudio": True,
             "outtmpl": str(out_dir / "%(playlist_index)s - %(title)s.%(ext)s"),
             "windowsfilenames": True,

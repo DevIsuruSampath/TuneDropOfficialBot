@@ -12,6 +12,14 @@ def _base_ytdlp_opts() -> dict[str, Any]:
     opts: dict[str, Any] = {
         "quiet": True,
         "js_runtimes": {"node": {}},
+        "keepvideo": False,
+        "writethumbnail": False,
+        "nopart": True,
+        "concurrent_fragment_downloads": 4,
+        "http_chunk_size": 10485760,
+        "retries": 3,
+        "fragment_retries": 3,
+        "socket_timeout": 30,
     }
     if settings.ytdlp_cookie_file:
         opts["cookiefile"] = settings.ytdlp_cookie_file
