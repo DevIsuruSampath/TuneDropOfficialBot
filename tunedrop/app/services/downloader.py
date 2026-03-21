@@ -436,12 +436,13 @@ class MusicDownloadManager:
                 text = f"Downloading from YouTube: {percent:.1f}%"
                 asyncio.run_coroutine_threadsafe(task.update(text), loop)
             elif status == "finished":
-                asyncio.run_coroutine_threadsafe(task.update("Converting downloaded audio to MP3..."), loop)
+                asyncio.run_coroutine_threadsafe(task.update("Converting to MP3 (320kbps)..."), loop)
 
         output_template = str(out_dir / "%(title)s.%(ext)s")
         ydl_opts = {
             **_base_ytdlp_opts(),
             "format": "bestaudio/best",
+            "extractaudio": True,
             "outtmpl": output_template,
             "noplaylist": True,
             "windowsfilenames": True,
@@ -470,16 +471,29 @@ class MusicDownloadManager:
         loop = asyncio.get_running_loop()
 
         def progress_hook(payload: dict[str, Any]) -> None:
-            if payload.get("status") == "downloading":
-                filename = Path(str(payload.get("filename") or "")).name
+            status = payload.get("status")
+            if status == "downloading":
+                filename = Path(str(payload.get("filename") or "")).stem
+                total = payload.get("total_bytes") or payload.get("total_bytes_estimate") or 0
+                downloaded = payload.get("downloaded_bytes") or 0
+                percent = (downloaded / total * 100) if total else 0
+                idx = payload.get("playlist_index", "?")
+                n_entries = payload.get("playlist_count", "?")
                 asyncio.run_coroutine_threadsafe(
-                    task.update(f"Downloading playlist item: {filename or 'current track'}"),
+                    task.update(f"Downloading track {idx}/{n_entries}: {filename} ({percent:.0f}%)"),
+                    loop,
+                )
+            elif status == "processing":
+                filename = Path(str(payload.get("filename") or "")).stem
+                asyncio.run_coroutine_threadsafe(
+                    task.update(f"Converting to MP3 (320kbps): {filename}"),
                     loop,
                 )
 
         ydl_opts = {
             **_base_ytdlp_opts(),
             "format": "bestaudio/best",
+            "extractaudio": True,
             "outtmpl": str(out_dir / "%(playlist_index)s - %(title)s.%(ext)s"),
             "windowsfilenames": True,
             "restrictfilenames": True,
