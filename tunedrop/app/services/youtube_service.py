@@ -19,7 +19,7 @@ class YoutubeInfo:
 
 async def extract_info(url: str) -> dict[str, Any]:
     def _extract() -> dict[str, Any]:
-        with YoutubeDL({"quiet": True, "noplaylist": False, "extract_flat": "in_playlist", "js_runtimes": ["node"]}) as ydl:
+        with YoutubeDL({"quiet": True, "noplaylist": False, "extract_flat": "in_playlist", "js_runtimes": {"node": {}}}) as ydl:
             return ydl.extract_info(url, download=False)
 
     return await asyncio.to_thread(_extract)

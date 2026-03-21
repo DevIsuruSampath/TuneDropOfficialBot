@@ -453,7 +453,7 @@ class MusicDownloadManager:
                     "preferredquality": "320",
                 }
             ],
-            "js_runtimes": ["node"],
+            "js_runtimes": {"node": {}},
         }
 
         def _download() -> Path:
@@ -492,7 +492,7 @@ class MusicDownloadManager:
                 }
             ],
             "playlistend": settings.max_playlist_items,
-            "js_runtimes": ["node"],
+            "js_runtimes": {"node": {}},
         }
 
         def _download() -> None:
