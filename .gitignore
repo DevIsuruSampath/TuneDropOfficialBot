@@ -28,3 +28,5 @@ data/*.json
 memory/
 
 *.mp3
+*.session
+data/*.pid
