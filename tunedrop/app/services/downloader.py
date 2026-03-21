@@ -99,7 +99,7 @@ class MusicDownloadManager:
     async def _download_spotify_track(self, app: Client, message: Message, task: DownloadTask) -> None:
         work_dir = await ensure_clean_directory(settings.temp_dir / f"{task.user_id}_{int(time.time())}")
         try:
-            await task.update("Downloading track with spotdl...")
+            await task.update("\U0001f3b5 Searching for your track...")
             try:
                 result = await self._run_spotdl(task, task.request.source, work_dir, playlist=False)
             except SubprocessFailure as exc:
@@ -115,20 +115,20 @@ class MusicDownloadManager:
                 if not fallback_url:
                     raise RuntimeError(str(retry_failure)) from retry_failure
                 logger.warning("spotdl failed; falling back to direct yt-dlp download: %s", fallback_url)
-                await task.update("spotdl failed. Falling back to direct YouTube download...")
+                await task.update("\U0001f504 Trying alternative source...")
                 await self._run_ytdlp_download(task, fallback_url, work_dir)
                 result = retry_failure.result
             audio_file = find_first_file(work_dir, suffix=".mp3")
             if not audio_file:
                 detail = result.last_error or result.last_line
                 if detail:
-                    raise RuntimeError(f"spotdl did not produce an MP3 file. Last output: {detail}")
-                raise RuntimeError("spotdl did not produce an MP3 file.")
+                    raise RuntimeError(f"Download failed. Last output: {detail}")
+                raise RuntimeError("Download failed.")
 
             metadata = await read_audio_metadata(audio_file, fallback_title=audio_file.stem)
-            await task.update("Uploading track to Telegram...")
+            await task.update("\U0001f4e4 Uploading track...")
             await self._send_audio(app, message, audio_file, metadata)
-            await task.update("Completed.")
+            await task.update("\u2705 Completed.")
         finally:
             await cleanup_paths([work_dir])
 
@@ -137,7 +137,7 @@ class MusicDownloadManager:
         playlist_dir = await ensure_clean_directory(settings.playlists_dir / safe_name)
         zip_path = settings.zip_dir / f"{safe_name}.zip"
         try:
-            await task.update("Downloading playlist with spotdl...")
+            await task.update("\U0001f3b6 Downloading playlist...")
             result = await self._run_spotdl(task, task.request.source, playlist_dir, playlist=True)
             tracks = list_audio_files(playlist_dir)
             if not tracks:
@@ -186,7 +186,7 @@ class MusicDownloadManager:
         work_dir = await ensure_clean_directory(settings.temp_dir / f"yt_{task.user_id}_{int(time.time())}")
         thumb_path: Path | None = None
         try:
-            await task.update("Downloading audio from YouTube...")
+            await task.update("\U0001f3b5 Downloading audio...")
             audio_file = await self._run_ytdlp_download(task, task.request.source, work_dir)
             thumb_url = info.get("thumbnail")
             if thumb_url:
@@ -197,9 +197,9 @@ class MusicDownloadManager:
                 fallback_artist=str(info.get("uploader") or info.get("channel") or "Unknown Artist"),
             )
             metadata.thumbnail_path = thumb_path
-            await task.update("Uploading track to Telegram...")
+            await task.update("\U0001f4e4 Uploading track...")
             await self._send_audio(app, message, audio_file, metadata)
-            await task.update("Completed.")
+            await task.update("\u2705 Completed.")
         finally:
             await cleanup_paths([work_dir])
 
@@ -208,7 +208,7 @@ class MusicDownloadManager:
         playlist_dir = await ensure_clean_directory(settings.playlists_dir / f"{title}_{int(time.time())}")
         zip_path = settings.zip_dir / f"{playlist_dir.name}.zip"
         try:
-            await task.update("Downloading YouTube playlist...")
+            await task.update("\U0001f3b6 Downloading playlist...")
             await self._run_ytdlp_playlist(task, task.request.source, playlist_dir)
             tracks = list_audio_files(playlist_dir)
             if not tracks:
@@ -297,7 +297,7 @@ class MusicDownloadManager:
             return failure
 
         logger.warning("spotdl failed during YouTube Music resolution; retrying with plain YouTube only")
-        await task.update("YouTube Music lookup failed. Retrying with YouTube only...")
+        await task.update("\U0001f504 Retrying with alternative source...")
         try:
             await self._run_spotdl(task, source, out_dir, playlist=False, audio_providers=("youtube",))
         except SubprocessFailure as retry_failure:
@@ -365,19 +365,19 @@ class MusicDownloadManager:
         lowered = text.lower()
         if name != "spotdl":
             if "downloading" in lowered or "converting" in lowered or "processing" in lowered:
-                return text
+                return f"\U0001f3b5 {text}"
             return None
 
         if "processing query" in lowered:
-            return "Resolving Spotify track..."
+            return "\U0001f50d Searching for your track..."
         if "found" in lowered and ("youtube" in lowered or "youtube music" in lowered):
-            return "Matched Spotify track to an audio source..."
+            return "\U0001f3a7 Track found!"
         if "downloading" in lowered:
-            return text
+            return f"\U0001f3b5 {text}"
         if "converting" in lowered:
-            return "Converting audio to MP3..."
+            return "\U0001f4a7 Converting to MP3 (320kbps)..."
         if "skipping" in lowered:
-            return text
+            return f"\u23ed\ufe0f {text}"
         return None
 
     def _is_subprocess_error_line(self, name: str, text: str) -> bool:
@@ -433,7 +433,7 @@ class MusicDownloadManager:
                 total = payload.get("total_bytes") or payload.get("total_bytes_estimate") or 0
                 downloaded = payload.get("downloaded_bytes") or 0
                 percent = (downloaded / total * 100) if total else 0
-                text = f"Downloading from YouTube: {percent:.1f}%"
+                text = f"\U0001f3b5 Downloading: {percent:.1f}%"
                 asyncio.run_coroutine_threadsafe(task.update(text), loop)
             elif status == "finished":
                 asyncio.run_coroutine_threadsafe(task.update("Converting to MP3 (320kbps)..."), loop)
@@ -462,7 +462,7 @@ class MusicDownloadManager:
                 ydl.download([url])
             file_path = find_first_file(out_dir, suffix=".mp3")
             if not file_path:
-                raise RuntimeError("yt-dlp did not produce an MP3 file.")
+                raise RuntimeError("Download failed.")
             return file_path
 
         return await asyncio.wait_for(asyncio.to_thread(_download), timeout=600)
