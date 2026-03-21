@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pyrogram import Client, filters
-from pyrogram.errors import StopPropagation
+from pyrogram import StopPropagation
 
 from tunedrop.app.services.link_generator import link_store
 from tunedrop.app.utils.filters import fresh

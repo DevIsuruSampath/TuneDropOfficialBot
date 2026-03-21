@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pyrogram import Client, filters
+from pyrogram import Client, StopPropagation, filters
 
 from tunedrop.app.services.downloader import DownloadRequest, download_manager
 from tunedrop.app.services.progress import task_registry

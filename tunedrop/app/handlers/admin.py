@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pyrogram import Client, filters
-from pyrogram.errors import StopPropagation
+from pyrogram import StopPropagation
 
 from tunedrop.app.services.progress import task_registry
 from tunedrop.app.utils.decorators import admin_only

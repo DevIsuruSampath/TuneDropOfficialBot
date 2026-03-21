@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pyrogram import Client, filters
-from pyrogram.errors import StopPropagation
+from pyrogram import StopPropagation
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from tunedrop.app.core.constants import HELP_TEXT, WELCOME_TEXT
