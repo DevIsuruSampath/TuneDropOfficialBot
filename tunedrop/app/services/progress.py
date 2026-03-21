@@ -12,6 +12,8 @@ from pyrogram import Client
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from tunedrop.app.core.database import get_database
+from pyrogram.enums import ParseMode
+
 from tunedrop.app.utils.ui_utils import build_cancel_keyboard, build_error_message, build_retry_keyboard
 
 
@@ -81,13 +83,13 @@ class TaskRegistry:
             await message.reply_text(
                 "<b>⏳ You already have a running task.</b>",
                 reply_markup=_CANCEL_MARKUP,
-                parse_mode="HTML",
+                parse_mode=ParseMode.HTML,
             )
             return
 
         status_message = await message.reply_text(
             "<b>🎤 Queued your download request...</b>",
-            parse_mode="HTML",
+            parse_mode=ParseMode.HTML,
         )
         task = DownloadTask(
             user_id=user_id,
@@ -113,7 +115,7 @@ class TaskRegistry:
 
         request, runner, app = failed
         try:
-            await message.edit_text("<b>🔄 Retrying...</b>", reply_markup=_CANCEL_MARKUP, parse_mode="HTML")
+            await message.edit_text("<b>🔄 Retrying...</b>", reply_markup=_CANCEL_MARKUP, parse_mode=ParseMode.HTML)
         except Exception:
             return False
 
@@ -133,11 +135,11 @@ class TaskRegistry:
         try:
             await runner(app, message, task)
             task._reply_markup = None
-            await task.update(task.last_text, parse_mode="HTML")
+            await task.update(task.last_text, parse_mode=ParseMode.HTML)
         except asyncio.CancelledError:
             task._reply_markup = None
             try:
-                await task.update("<b>❌ Task cancelled.</b>", parse_mode="HTML")
+                await task.update("<b>❌ Task cancelled.</b>", parse_mode=ParseMode.HTML)
             except asyncio.CancelledError:
                 pass
             raise
@@ -145,7 +147,7 @@ class TaskRegistry:
             logger.exception("Download task failed for user %s", task.user_id)
             self._failed[task.user_id] = (request, runner, app)
             task._reply_markup = _RETRY_MARKUP
-            await task.update(build_error_message(str(exc)), parse_mode="HTML")
+            await task.update(build_error_message(str(exc)), parse_mode=ParseMode.HTML)
         finally:
             self._tasks.pop(task.user_id, None)
             await self._persist()

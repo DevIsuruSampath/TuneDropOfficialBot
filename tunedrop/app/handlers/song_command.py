@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pyrogram import Client, filters
+from pyrogram.enums import ParseMode
 
 from tunedrop.app.services.downloader import DownloadRequest, download_manager
 from tunedrop.app.services.progress import task_registry
@@ -17,7 +18,7 @@ def register(app: Client) -> None:
             await message.reply_text(
                 "<b>🎵 Usage:</b> <code>/song</code> <i>song name</i>\n\n"
                 "<i>Example:</i> <code>/song Blinding Lights</code>",
-                parse_mode="HTML",
+                parse_mode=ParseMode.HTML,
             )
             return
 

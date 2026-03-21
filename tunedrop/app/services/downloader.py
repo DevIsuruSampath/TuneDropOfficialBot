@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from pyrogram import Client
+from pyrogram.enums import ParseMode
 from pyrogram.types import Message
 from yt_dlp import YoutubeDL
 
@@ -85,7 +86,7 @@ class SubprocessFailure(RuntimeError):
 class MusicDownloadManager:
     async def __call__(self, app: Client, message: Message, task: DownloadTask) -> None:
         request: DownloadRequest = task.request
-        await task.update(f"<b>🔍 Validating request:</b> <code>{escape_html(request.source)}</code>", parse_mode="HTML")
+        await task.update(f"<b>🔍 Validating request:</b> <code>{escape_html(request.source)}</code>", parse_mode=ParseMode.HTML)
 
         if request.input_type in {InputType.SPOTIFY_TRACK, InputType.SEARCH, InputType.SPOTIFY_PLAYLIST}:
             await self._handle_spotify_or_search(app, message, task)
@@ -107,7 +108,7 @@ class MusicDownloadManager:
     async def _download_spotify_track(self, app: Client, message: Message, task: DownloadTask) -> None:
         work_dir = await ensure_clean_directory(settings.temp_dir / f"{task.user_id}_{int(time.time())}")
         try:
-            await task.update(build_progress_message(DownloadPhase.SEARCHING), parse_mode="HTML")
+            await task.update(build_progress_message(DownloadPhase.SEARCHING), parse_mode=ParseMode.HTML)
 
             spotdl_result: SubprocessResult | None = None
             if task.request.input_type != InputType.SEARCH:
@@ -129,9 +130,9 @@ class MusicDownloadManager:
                     yt_url = f"ytsearch1:{task.request.source}"
                 if yt_url:
                     if task.request.input_type == InputType.SEARCH:
-                        await task.update(build_progress_message(DownloadPhase.SEARCHING), parse_mode="HTML")
+                        await task.update(build_progress_message(DownloadPhase.SEARCHING), parse_mode=ParseMode.HTML)
                     else:
-                        await task.update(build_progress_message(DownloadPhase.SEARCHING, details="Trying alternative source..."), parse_mode="HTML")
+                        await task.update(build_progress_message(DownloadPhase.SEARCHING, details="Trying alternative source..."), parse_mode=ParseMode.HTML)
                     try:
                         audio_file, thumb_url, yt_info = await self._run_ytdlp_download(task, yt_url, work_dir)
                     except Exception:
@@ -151,7 +152,7 @@ class MusicDownloadManager:
                 thumb_path = await extract_thumbnail_from_url(thumb_url, work_dir / "thumb.jpg")
                 metadata.thumbnail_path = thumb_path
             file_size = audio_file.stat().st_size
-            await task.update(build_progress_message(DownloadPhase.UPLOADING), parse_mode="HTML")
+            await task.update(build_progress_message(DownloadPhase.UPLOADING), parse_mode=ParseMode.HTML)
             await self._send_audio(app, message, audio_file, metadata)
             await task.update(
                 build_completion_card(
@@ -160,7 +161,7 @@ class MusicDownloadManager:
                     duration=metadata.duration,
                     file_size=file_size,
                 ),
-                parse_mode="HTML",
+                parse_mode=ParseMode.HTML,
             )
         finally:
             await cleanup_paths([work_dir])
@@ -170,7 +171,7 @@ class MusicDownloadManager:
         playlist_dir = await ensure_clean_directory(settings.playlists_dir / safe_name)
         zip_path = settings.zip_dir / f"{safe_name}.zip"
         try:
-            await task.update(build_progress_message(DownloadPhase.DOWNLOADING, details="Downloading playlist..."), parse_mode="HTML")
+            await task.update(build_progress_message(DownloadPhase.DOWNLOADING, details="Downloading playlist..."), parse_mode=ParseMode.HTML)
             result = await self._run_spotdl(task, task.request.source, playlist_dir, playlist=True)
             tracks = list_audio_files(playlist_dir)
             if not tracks:
@@ -179,7 +180,7 @@ class MusicDownloadManager:
                     raise RuntimeError(f"Playlist download finished without MP3 files. Last output: {detail}")
                 raise RuntimeError("Playlist download finished without MP3 files.")
 
-            await task.update(build_progress_message(DownloadPhase.CONVERTING, details=f"Creating ZIP archive for {len(tracks)} tracks..."), parse_mode="HTML")
+            await task.update(build_progress_message(DownloadPhase.CONVERTING, details=f"Creating ZIP archive for {len(tracks)} tracks..."), parse_mode=ParseMode.HTML)
             await build_zip(playlist_dir, zip_path)
             upload = await upload_zip_to_storage(app, zip_path, caption=f"Playlist archive for user {task.user_id}")
             link = await link_store.create_link(
@@ -201,7 +202,7 @@ class MusicDownloadManager:
                     estimated_time=eta_seconds,
                     speed_kbps=settings.download_speed_kbps,
                 ),
-                parse_mode="HTML",
+                parse_mode=ParseMode.HTML,
             )
         finally:
             await cleanup_paths([playlist_dir, zip_path])
@@ -218,7 +219,7 @@ class MusicDownloadManager:
         work_dir = await ensure_clean_directory(settings.temp_dir / f"yt_{task.user_id}_{int(time.time())}")
         thumb_path: Path | None = None
         try:
-            await task.update(build_progress_message(DownloadPhase.DOWNLOADING), parse_mode="HTML")
+            await task.update(build_progress_message(DownloadPhase.DOWNLOADING), parse_mode=ParseMode.HTML)
             audio_file, _, _ = await self._run_ytdlp_download(task, task.request.source, work_dir)
             thumb_url = info.get("thumbnail")
             if thumb_url:
@@ -230,7 +231,7 @@ class MusicDownloadManager:
             )
             metadata.thumbnail_path = thumb_path
             file_size = audio_file.stat().st_size
-            await task.update(build_progress_message(DownloadPhase.UPLOADING), parse_mode="HTML")
+            await task.update(build_progress_message(DownloadPhase.UPLOADING), parse_mode=ParseMode.HTML)
             await self._send_audio(app, message, audio_file, metadata)
             await task.update(
                 build_completion_card(
@@ -239,7 +240,7 @@ class MusicDownloadManager:
                     duration=metadata.duration,
                     file_size=file_size,
                 ),
-                parse_mode="HTML",
+                parse_mode=ParseMode.HTML,
             )
         finally:
             await cleanup_paths([work_dir])
@@ -249,13 +250,13 @@ class MusicDownloadManager:
         playlist_dir = await ensure_clean_directory(settings.playlists_dir / f"{title}_{int(time.time())}")
         zip_path = settings.zip_dir / f"{playlist_dir.name}.zip"
         try:
-            await task.update(build_progress_message(DownloadPhase.DOWNLOADING, details="Downloading playlist..."), parse_mode="HTML")
+            await task.update(build_progress_message(DownloadPhase.DOWNLOADING, details="Downloading playlist..."), parse_mode=ParseMode.HTML)
             await self._run_ytdlp_playlist(task, task.request.source, playlist_dir)
             tracks = list_audio_files(playlist_dir)
             if not tracks:
                 raise RuntimeError("Playlist download finished but no MP3 files were found.")
 
-            await task.update(build_progress_message(DownloadPhase.CONVERTING, details=f"Creating ZIP archive for {len(tracks)} tracks..."), parse_mode="HTML")
+            await task.update(build_progress_message(DownloadPhase.CONVERTING, details=f"Creating ZIP archive for {len(tracks)} tracks..."), parse_mode=ParseMode.HTML)
             await build_zip(playlist_dir, zip_path)
             upload = await upload_zip_to_storage(app, zip_path, caption=f"YouTube playlist archive for user {task.user_id}")
             link = await link_store.create_link(
@@ -277,7 +278,7 @@ class MusicDownloadManager:
                     estimated_time=eta_seconds,
                     speed_kbps=settings.download_speed_kbps,
                 ),
-                parse_mode="HTML",
+                parse_mode=ParseMode.HTML,
             )
         finally:
             await cleanup_paths([playlist_dir, zip_path])
@@ -293,7 +294,7 @@ class MusicDownloadManager:
             audio=str(audio_file),
             caption=caption,
             caption_entities=None,
-            parse_mode="HTML",
+            parse_mode=ParseMode.HTML,
             title=metadata.title,
             performer=metadata.artist,
             duration=metadata.duration,
@@ -379,7 +380,7 @@ class MusicDownloadManager:
                     if not is_error:
                         progress_text = self._map_subprocess_progress(name, text)
                         if progress_text:
-                            await task.update(progress_text[:4000], parse_mode="HTML")
+                            await task.update(progress_text[:4000], parse_mode=ParseMode.HTML)
             code = await process.wait()
             if code != 0:
                 last_detail = error_lines[-1] if error_lines else (recent_lines[-1] if recent_lines else "No error details captured.")
@@ -450,10 +451,10 @@ class MusicDownloadManager:
                 downloaded = payload.get("downloaded_bytes") or 0
                 percent = (downloaded / total * 100) if total else 0
                 text = build_progress_message(DownloadPhase.DOWNLOADING, percentage=percent)
-                asyncio.run_coroutine_threadsafe(task.update(text, parse_mode="HTML"), loop)
+                asyncio.run_coroutine_threadsafe(task.update(text, parse_mode=ParseMode.HTML), loop)
             elif status == "finished":
                 text = build_progress_message(DownloadPhase.CONVERTING)
-                asyncio.run_coroutine_threadsafe(task.update(text, parse_mode="HTML"), loop)
+                asyncio.run_coroutine_threadsafe(task.update(text, parse_mode=ParseMode.HTML), loop)
 
         output_template = str(out_dir / "%(title)s.%(ext)s")
         ydl_opts = {
@@ -512,7 +513,7 @@ class MusicDownloadManager:
                             percentage=percent,
                             details=f"Track {idx}/{n_entries}: {filename}",
                         ),
-                        parse_mode="HTML",
+                        parse_mode=ParseMode.HTML,
                     ),
                     loop,
                 )
@@ -521,7 +522,7 @@ class MusicDownloadManager:
                 asyncio.run_coroutine_threadsafe(
                     task.update(
                         build_progress_message(DownloadPhase.CONVERTING, details=filename),
-                        parse_mode="HTML",
+                        parse_mode=ParseMode.HTML,
                     ),
                     loop,
                 )
