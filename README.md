@@ -24,6 +24,7 @@ Production-oriented Telegram bot built with Pyrofork, `spotdl`, `yt-dlp`, FastAP
 ```text
 .
 ├── .env.example
+├── Dockerfile
 ├── README.md
 ├── requirements.txt
 ├── tunedrop/
@@ -34,19 +35,56 @@ Production-oriented Telegram bot built with Pyrofork, `spotdl`, `yt-dlp`, FastAP
 │       ├── __init__.py
 │       ├── runtime.py
 │       ├── core/
+│       │   ├── __init__.py
+│       │   ├── client.py
+│       │   ├── config.py
+│       │   ├── constants.py
+│       │   ├── database.py
+│       │   └── logging.py
 │       ├── handlers/
+│       │   ├── __init__.py
+│       │   ├── admin.py
+│       │   ├── callback_handler.py
+│       │   ├── errors.py
+│       │   ├── playlist_handler.py
+│       │   ├── song_command.py
+│       │   ├── start.py
+│       │   └── url_handler.py
 │       ├── services/
+│       │   ├── __init__.py
+│       │   ├── downloader.py
+│       │   ├── file_utils.py
+│       │   ├── link_generator.py
+│       │   ├── metadata.py
+│       │   ├── progress.py
+│       │   ├── size_estimator.py
+│       │   ├── spotify_service.py
+│       │   ├── uploader.py
+│       │   ├── youtube_service.py
+│       │   └── zip_service.py
 │       ├── utils/
+│       │   ├── __init__.py
+│       │   ├── decorators.py
+│       │   ├── ffmpeg_utils.py
+│       │   ├── file_utils.py
+│       │   ├── filters.py
+│       │   ├── helpers.py
+│       │   ├── time_utils.py
+│       │   └── validators.py
 │       └── web/
+│           ├── __init__.py
+│           ├── server.py
+│           ├── static/
+│           │   └── style.css
+│           └── templates/
+│               └── download.html
 ├── downloads/
 │   ├── songs/
 │   ├── playlists/
 │   ├── temp/
 │   └── zip/
-├── logs/
-│   └── bot.log
-└── memory/
-    └── YYYY-MM-DD.md
+├── data/
+└── logs/
 ```
 
 ## Requirements
@@ -54,7 +92,7 @@ Production-oriented Telegram bot built with Pyrofork, `spotdl`, `yt-dlp`, FastAP
 - Python 3.12 or newer
 - MongoDB 6.0 or newer
 - `ffmpeg` installed on the VPS
-- Cloudflare WARP configured during build or server setup with `bash <(curl -fsSL git.io/warp.sh) wgd`
+- If this server needs Cloudflare WARP, configure it on the host or VPS with `bash <(curl -fsSL git.io/warp.sh) wgd`
 - Telegram bot token from BotFather
 - Telegram API credentials from `my.telegram.org`
 - A private Telegram channel where the bot is an admin
@@ -76,25 +114,27 @@ sudo apt update
 sudo apt install -y ffmpeg
 ```
 
-4. Configure Cloudflare WARP.
+4. Optional: configure Cloudflare WARP on the host or VPS.
 
 ```bash
 bash <(curl -fsSL git.io/warp.sh) wgd
 ```
 
+Do not run this inside `docker build`. `warp.sh` requires host-level tools such as `systemd` and WireGuard service control.
+
 5. Start MongoDB and copy `.env.example` to `.env`, then fill in the values.
 
-6. Start the bot:
+6. Start the bot and web server (default):
 
 ```bash
 python -m tunedrop
 ```
 
-7. Optional runtime modes:
+This runs both the Telegram bot and the web server concurrently. To run only one component:
 
 ```bash
+python -m tunedrop --mode bot
 python -m tunedrop --mode web
-python -m tunedrop --mode all
 ```
 
 ## How It Works
@@ -104,8 +144,8 @@ python -m tunedrop --mode all
 - Single tracks are uploaded directly to the user chat.
 - Playlist ZIP files are uploaded to the configured private channel.
 - Uploaded ZIP metadata, recent file history, and active task snapshots are stored in MongoDB.
-- The FastAPI app exposes:
-  - a landing page at `/download/{token}`
+- The FastAPI web server exposes:
+  - a download page at `/download/{token}`
   - a file endpoint at `/file/{token}` that resolves the Telegram file path through the Bot API
 
 ## Commands

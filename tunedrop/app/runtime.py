@@ -17,7 +17,7 @@ class RunMode(StrEnum):
     ALL = "all"
 
 
-DEFAULT_MODE: Final[RunMode] = RunMode.BOT
+DEFAULT_MODE: Final[RunMode] = RunMode.ALL
 
 
 def configure_runtime(mode: RunMode) -> None:

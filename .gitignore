@@ -23,5 +23,8 @@ logs/*.log
 
 data/*.session
 data/*.session-journal
+data/*.json
+
+memory/
 
 *.mp3

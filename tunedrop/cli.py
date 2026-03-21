@@ -6,13 +6,13 @@ import argparse
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="python -m tunedrop",
-        description="Run the TuneDrop Telegram bot or web runtime.",
+        description="Run the TuneDrop Telegram bot and web server.",
     )
     parser.add_argument(
         "--mode",
         choices=("bot", "web", "all"),
-        default="bot",
-        help="Runtime mode to start. Defaults to the Telegram bot only.",
+        default="all",
+        help="Runtime mode to start. Defaults to both bot and web server.",
     )
     return parser
 
