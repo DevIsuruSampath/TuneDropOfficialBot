@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from pyrogram import Client, filters
+from pyrogram.errors import StopPropagation
 
 from tunedrop.app.services.link_generator import link_store
+from tunedrop.app.utils.filters import fresh
 
 
 def register(app: Client) -> None:
-    @app.on_message(filters.command("myfiles"))
+    @app.on_message(fresh & filters.command("myfiles"))
     async def myfiles_handler(_, message):
         user = message.from_user
         if not user:
@@ -24,3 +26,4 @@ def register(app: Client) -> None:
                 f"\U0001f4c4 {item['name']} \u2022 {item['size_text']}\n\U0001f517 {item['link']}"
             )
         await message.reply_text("\n\n".join(lines), disable_web_page_preview=True)
+        raise StopPropagation
