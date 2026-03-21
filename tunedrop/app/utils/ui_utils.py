@@ -14,14 +14,6 @@ class DownloadPhase(Enum):
     UPLOADING = "uploading"
 
 
-_PHASE_CONFIG = {
-    DownloadPhase.SEARCHING: {"emoji": "🔍", "label": "Searching"},
-    DownloadPhase.DOWNLOADING: {"emoji": "⬇️", "label": "Downloading"},
-    DownloadPhase.CONVERTING: {"emoji": "🎵", "label": "Converting"},
-    DownloadPhase.UPLOADING: {"emoji": "☁️", "label": "Uploading"},
-}
-
-
 def escape_html(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
@@ -31,39 +23,26 @@ def build_progress_message(
     percentage: float | None = None,
     details: str | None = None,
 ) -> str:
-    config = _PHASE_CONFIG[phase]
-    lines = [f"<b>{config['emoji']} {config['label']}</b>"]
+    if phase == DownloadPhase.SEARCHING:
+        lines = ["<b>🔍 Searching</b>"]
+        if details:
+            lines.append(f"<i>{escape_html(details)}</i>")
+        return "\n".join(lines)
 
+    if phase == DownloadPhase.UPLOADING:
+        return "<b>📤 Uploading</b>"
+
+    # DOWNLOADING and CONVERTING both show as "Processing"
+    lines = ["<b>⚙️ Processing audio</b>"]
     if percentage is not None:
         lines.append(f"<code>{percentage:.0f}%</code>")
     if details:
         lines.append(f"<i>{escape_html(details)}</i>")
-
-    if phase == DownloadPhase.SEARCHING:
-        lines.append("")
-        lines.append("<i>Looking across multiple sources...</i>")
-    elif phase == DownloadPhase.CONVERTING:
-        lines.append("")
-        lines.append("<i>MP3 320kbps</i>")
-
     return "\n".join(lines)
 
 
-def build_completion_card(
-    title: str,
-    artist: str,
-    duration: int,
-    file_size: int,
-    quality: str = "320kbps",
-) -> str:
-    return "\n".join([
-        "<b>✅ Sent</b>",
-        "",
-        f"<b>{escape_html(title)}</b>",
-        f"<i>{escape_html(artist)}</i>",
-        "",
-        f"<code>{format_duration_mmss(duration)}</code>  ·  <code>{format_bytes(file_size)}</code>  ·  <code>MP3 {quality}</code>",
-    ])
+def build_completion_message() -> str:
+    return "<b>✅ Sent</b>"
 
 
 def build_audio_caption(
@@ -79,6 +58,16 @@ def build_audio_caption(
     )
 
 
+def build_audio_keyboard(bot_username: str) -> InlineKeyboardMarkup:
+    share_url = f"https://t.me/share/url?url=https://t.me/{bot_username}&text=TuneDrop%20%E2%80%93%20Download%20any%20song%20%E2%9C%94"
+    return InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("📤 Share", url=share_url),
+            InlineKeyboardButton("🤖 Open Bot", url=f"https://t.me/{bot_username}"),
+        ],
+    ])
+
+
 def build_playlist_completion(
     track_count: int,
     file_size: int,
@@ -87,9 +76,9 @@ def build_playlist_completion(
     speed_kbps: float,
 ) -> str:
     return "\n".join([
-        "<b>✅ Playlist Ready</b>",
+        "<b>✅ Playlist ready</b>",
         "",
-        f"<code>{track_count}</code> tracks  ·  <code>{format_bytes(file_size)}</code>",
+        f"<code>{track_count}</code> tracks · <code>{format_bytes(file_size)}</code>",
         f"<i>~{format_seconds(estimated_time)} at {speed_kbps:.0f} KB/s</i>",
         "",
         f"<code>{download_link}</code>",
@@ -98,47 +87,26 @@ def build_playlist_completion(
 
 def build_error_message(error: str) -> str:
     friendly = _translate_error(error)
-    suggestions = _get_suggestions(error)
-    lines = [
+    return "\n".join([
         "<b>Something went wrong</b>",
         "",
         f"<i>{escape_html(friendly)}</i>",
-    ]
-    if suggestions:
-        lines.append("")
-        for s in suggestions:
-            lines.append(f"· {s}")
-    return "\n".join(lines)
+        "",
+        'Tap "Try Again" below',
+    ])
 
 
 def _translate_error(error: str) -> str:
     lowered = error.lower()
     if "timeout" in lowered or "stalled" in lowered:
-        return "Download timed out. The server might be busy."
+        return "Download timed out. Try again."
     if "not found" in lowered or "unavailable" in lowered:
-        return "This track isn't available right now."
+        return "Track not available."
     if "ffmpeg" in lowered or "conversion" in lowered:
-        return "Couldn't convert the audio file."
+        return "Couldn't convert the audio."
     if "rate limit" in lowered:
-        return "Too many requests. Wait a moment and try again."
+        return "Too many requests. Wait a moment."
     return error[:200]
-
-
-def _get_suggestions(error: str) -> list[str]:
-    lowered = error.lower()
-    if "not found" in lowered or "unavailable" in lowered:
-        return [
-            "Check the URL is correct",
-            "Try /song &lt;name&gt; to search instead",
-        ]
-    if "timeout" in lowered or "stalled" in lowered:
-        return [
-            "Try again in a moment",
-        ]
-    return [
-        'Tap "Try Again" below',
-        "Try /song &lt;name&gt; to search",
-    ]
 
 
 def build_welcome_message() -> str:
@@ -150,7 +118,7 @@ def build_welcome_message() -> str:
         "Send a <b>Spotify</b> or <b>YouTube</b> link",
         "or search with <code>/song</code> <i>name</i>",
         "",
-        "<code>/help</code>  ·  <code>/myfiles</code>  ·  <code>/cancel</code>",
+        "<code>/help</code> · <code>/myfiles</code> · <code>/cancel</code>",
     ])
 
 
@@ -188,5 +156,5 @@ def build_cancel_keyboard() -> InlineKeyboardMarkup:
 
 def build_retry_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Try Again", callback_data="retry")],
+        [InlineKeyboardButton("🔁 Try Again", callback_data="retry")],
     ])

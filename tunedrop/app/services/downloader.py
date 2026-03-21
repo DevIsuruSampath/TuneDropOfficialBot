@@ -14,7 +14,7 @@ from typing import Any
 
 from pyrogram import Client
 from pyrogram.enums import ParseMode
-from pyrogram.types import Message
+from pyrogram.types import InlineKeyboardMarkup, Message
 from yt_dlp import YoutubeDL
 
 from tunedrop.app.core.config import settings
@@ -36,7 +36,8 @@ from tunedrop.app.utils.time_utils import estimate_download_time
 from tunedrop.app.utils.ui_utils import (
     DownloadPhase,
     build_audio_caption,
-    build_completion_card,
+    build_audio_keyboard,
+    build_completion_message,
     build_playlist_completion,
     build_progress_message,
     escape_html,
@@ -153,16 +154,10 @@ class MusicDownloadManager:
                 metadata.thumbnail_path = thumb_path
             file_size = audio_file.stat().st_size
             await task.update(build_progress_message(DownloadPhase.UPLOADING), parse_mode=ParseMode.HTML)
-            await self._send_audio(app, message, audio_file, metadata)
-            await task.update(
-                build_completion_card(
-                    title=metadata.title,
-                    artist=metadata.artist,
-                    duration=metadata.duration,
-                    file_size=file_size,
-                ),
-                parse_mode=ParseMode.HTML,
-            )
+            me = await app.get_me()
+            audio_markup = build_audio_keyboard(me.username) if me and me.username else None
+            await self._send_audio(app, message, audio_file, metadata, reply_markup=audio_markup)
+            await task.update(build_completion_message(), parse_mode=ParseMode.HTML)
         finally:
             await cleanup_paths([work_dir])
 
@@ -219,7 +214,7 @@ class MusicDownloadManager:
         work_dir = await ensure_clean_directory(settings.temp_dir / f"yt_{task.user_id}_{int(time.time())}")
         thumb_path: Path | None = None
         try:
-            await task.update(build_progress_message(DownloadPhase.DOWNLOADING), parse_mode=ParseMode.HTML)
+            await task.update(build_progress_message(DownloadPhase.SEARCHING), parse_mode=ParseMode.HTML)
             audio_file, _, _ = await self._run_ytdlp_download(task, task.request.source, work_dir)
             thumb_url = info.get("thumbnail")
             if thumb_url:
@@ -232,16 +227,10 @@ class MusicDownloadManager:
             metadata.thumbnail_path = thumb_path
             file_size = audio_file.stat().st_size
             await task.update(build_progress_message(DownloadPhase.UPLOADING), parse_mode=ParseMode.HTML)
-            await self._send_audio(app, message, audio_file, metadata)
-            await task.update(
-                build_completion_card(
-                    title=metadata.title,
-                    artist=metadata.artist,
-                    duration=metadata.duration,
-                    file_size=file_size,
-                ),
-                parse_mode=ParseMode.HTML,
-            )
+            me = await app.get_me()
+            audio_markup = build_audio_keyboard(me.username) if me and me.username else None
+            await self._send_audio(app, message, audio_file, metadata, reply_markup=audio_markup)
+            await task.update(build_completion_message(), parse_mode=ParseMode.HTML)
         finally:
             await cleanup_paths([work_dir])
 
@@ -283,7 +272,7 @@ class MusicDownloadManager:
         finally:
             await cleanup_paths([playlist_dir, zip_path])
 
-    async def _send_audio(self, app: Client, message: Message, audio_file: Path, metadata: Any) -> None:
+    async def _send_audio(self, app: Client, message: Message, audio_file: Path, metadata: Any, reply_markup: InlineKeyboardMarkup | None = None) -> None:
         caption = build_audio_caption(
             title=metadata.title,
             artist=metadata.artist,
@@ -295,6 +284,7 @@ class MusicDownloadManager:
             caption=caption,
             caption_entities=None,
             parse_mode=ParseMode.HTML,
+            reply_markup=reply_markup,
             title=metadata.title,
             performer=metadata.artist,
             duration=metadata.duration,
@@ -400,19 +390,17 @@ class MusicDownloadManager:
         lowered = text.lower()
         if name != "spotdl":
             if "downloading" in lowered or "converting" in lowered or "processing" in lowered:
-                return f"<b>🎵 {escape_html(text)}</b>"
+                return build_progress_message(DownloadPhase.DOWNLOADING)
             return None
 
         if "processing query" in lowered:
             return build_progress_message(DownloadPhase.SEARCHING)
-        if "found" in lowered and ("youtube" in lowered or "youtube music" in lowered):
-            return "<b>🎧 Track found!</b>"
         if "downloading" in lowered:
-            return f"<b>📥 {escape_html(text)}</b>"
+            return build_progress_message(DownloadPhase.DOWNLOADING)
         if "converting" in lowered:
             return build_progress_message(DownloadPhase.CONVERTING)
         if "skipping" in lowered:
-            return f"<i>⏭️ {escape_html(text)}</i>"
+            return f"<i>⏭ {escape_html(text)}</i>"
         return None
 
     def _is_subprocess_error_line(self, name: str, text: str) -> bool:
