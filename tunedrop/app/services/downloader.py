@@ -110,14 +110,13 @@ class MusicDownloadManager:
                 retry_failure = None
 
             if retry_failure is not None:
-                result = retry_failure.result
-                fallback_url = self._extract_youtube_url(retry_failure.result.recent_lines)
+                fallback_url = self._extract_youtube_url(retry_failure.result)
                 if not fallback_url:
                     raise RuntimeError(str(retry_failure)) from retry_failure
                 logger.warning("spotdl failed; falling back to direct yt-dlp download: %s", fallback_url)
                 await task.update("\U0001f504 Trying alternative source...")
                 await self._run_ytdlp_download(task, fallback_url, work_dir)
-                result = retry_failure.result
+                result = SubprocessResult(recent_lines=tuple(), error_lines=tuple())
             audio_file = find_first_file(work_dir, suffix=".mp3")
             if not audio_file:
                 detail = result.last_error or result.last_line
@@ -293,10 +292,15 @@ class MusicDownloadManager:
         out_dir: Path,
         failure: SubprocessFailure,
     ) -> SubprocessFailure | None:
-        if not self._is_ytmusic_connectivity_failure(failure.result):
+        joined = "\n".join((*failure.result.recent_lines, *failure.result.error_lines)).lower()
+        is_provider_error = any(
+            marker in joined
+            for marker in ("audioprovidererror", "download error", "yt-dlp download")
+        )
+        if not is_provider_error and not self._is_ytmusic_connectivity_failure(failure.result):
             return failure
 
-        logger.warning("spotdl failed during YouTube Music resolution; retrying with plain YouTube only")
+        logger.warning("spotdl failed; retrying with plain YouTube only")
         await task.update("\U0001f504 Retrying with alternative source...")
         try:
             await self._run_spotdl(task, source, out_dir, playlist=False, audio_providers=("youtube",))
@@ -312,8 +316,8 @@ class MusicDownloadManager:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
-        recent_lines: deque[str] = deque(maxlen=5)
-        error_lines: deque[str] = deque(maxlen=5)
+        recent_lines: deque[str] = deque(maxlen=50)
+        error_lines: deque[str] = deque(maxlen=20)
         try:
             while True:
                 if task.cancelled():
@@ -395,8 +399,9 @@ class MusicDownloadManager:
             )
         return "error" in lowered or "failed" in lowered
 
-    def _extract_youtube_url(self, lines: tuple[str, ...]) -> str | None:
-        for text in reversed(lines):
+    def _extract_youtube_url(self, result: SubprocessResult) -> str | None:
+        all_lines = (*result.error_lines, *result.recent_lines)
+        for text in reversed(all_lines):
             match = re.search(r"https?://(?:www\.)?(?:youtube\.com|youtu\.be)\S+", text)
             if match:
                 url = match.group(0).rstrip(".,;:!)\"]'")
