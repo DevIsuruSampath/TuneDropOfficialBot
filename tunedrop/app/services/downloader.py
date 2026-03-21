@@ -100,29 +100,30 @@ class MusicDownloadManager:
         work_dir = await ensure_clean_directory(settings.temp_dir / f"{task.user_id}_{int(time.time())}")
         try:
             await task.update("\U0001f3b5 Searching for your track...")
-            try:
-                result = await self._run_spotdl(task, task.request.source, work_dir, playlist=False)
-            except SubprocessFailure as exc:
-                retry_failure = await self._retry_spotdl_without_ytmusic(task, task.request.source, work_dir, exc)
-                if retry_failure is None:
-                    result = SubprocessResult(recent_lines=tuple(), error_lines=tuple())
-            else:
-                retry_failure = None
 
-            if retry_failure is not None:
-                fallback_url = self._extract_youtube_url(retry_failure.result)
-                if not fallback_url:
-                    raise RuntimeError(str(retry_failure)) from retry_failure
-                logger.warning("spotdl failed; falling back to direct yt-dlp download: %s", fallback_url)
-                await task.update("\U0001f504 Trying alternative source...")
-                await self._run_ytdlp_download(task, fallback_url, work_dir)
-                result = SubprocessResult(recent_lines=tuple(), error_lines=tuple())
+            spotdl_result: SubprocessResult | None = None
+            try:
+                spotdl_result = await self._run_spotdl(task, task.request.source, work_dir, playlist=False)
+            except SubprocessFailure as exc:
+                spotdl_result = exc.result
+                logger.warning("spotdl failed: %s", exc)
+
             audio_file = find_first_file(work_dir, suffix=".mp3")
+
+            if not audio_file and spotdl_result:
+                yt_url = self._extract_youtube_url(spotdl_result)
+                if not yt_url and task.request.input_type == InputType.SEARCH:
+                    yt_url = f"ytsearch1:{task.request.source}"
+                if yt_url:
+                    await task.update("\U0001f504 Trying alternative source...")
+                    try:
+                        await self._run_ytdlp_download(task, yt_url, work_dir)
+                    except Exception:
+                        logger.exception("yt-dlp fallback also failed")
+                    audio_file = find_first_file(work_dir, suffix=".mp3")
+
             if not audio_file:
-                detail = result.last_error or result.last_line
-                if detail:
-                    raise RuntimeError(f"Download failed. Last output: {detail}")
-                raise RuntimeError("Download failed.")
+                raise RuntimeError("Could not download the track. Please try again later.")
 
             metadata = await read_audio_metadata(audio_file, fallback_title=audio_file.stem)
             await task.update("\U0001f4e4 Uploading track...")
@@ -285,29 +286,6 @@ class MusicDownloadManager:
             cmd.extend(["--cookie-file", settings.spotify_cookie_file])
         return await self._run_subprocess(task, cmd, "spotdl")
 
-    async def _retry_spotdl_without_ytmusic(
-        self,
-        task: DownloadTask,
-        source: str,
-        out_dir: Path,
-        failure: SubprocessFailure,
-    ) -> SubprocessFailure | None:
-        joined = "\n".join((*failure.result.recent_lines, *failure.result.error_lines)).lower()
-        is_provider_error = any(
-            marker in joined
-            for marker in ("audioprovidererror", "download error", "yt-dlp download")
-        )
-        if not is_provider_error and not self._is_ytmusic_connectivity_failure(failure.result):
-            return failure
-
-        logger.warning("spotdl failed; retrying with plain YouTube only")
-        await task.update("\U0001f504 Retrying with alternative source...")
-        try:
-            await self._run_spotdl(task, source, out_dir, playlist=False, audio_providers=("youtube",))
-        except SubprocessFailure as retry_failure:
-            return retry_failure
-        return None
-
     async def _run_subprocess(self, task: DownloadTask, cmd: list[str], name: str) -> SubprocessResult:
         logger.info("Running %s command: %s", name, shlex.join(cmd))
         process = await asyncio.create_subprocess_exec(
@@ -408,25 +386,6 @@ class MusicDownloadManager:
                 return url
         return None
 
-    def _is_ytmusic_connectivity_failure(self, result: SubprocessResult) -> bool:
-        joined = "\n".join((*result.recent_lines, *result.error_lines)).lower()
-        ytmusic_markers = (
-            "music.youtube.com",
-            "ytmusic",
-            "youtube music",
-            "check_ytmusic_connection",
-            "to resolve 'music.youtube.com'",
-        )
-        connectivity_markers = (
-            "temporary failure in name resolution",
-            "nameresolutionerror",
-            "maxretryerror",
-            "connectionerror",
-            "failed to establish a new connection",
-        )
-        return any(marker in joined for marker in ytmusic_markers) and any(
-            marker in joined for marker in connectivity_markers
-        )
 
     async def _run_ytdlp_download(self, task: DownloadTask, url: str, out_dir: Path) -> Path:
         loop = asyncio.get_running_loop()
