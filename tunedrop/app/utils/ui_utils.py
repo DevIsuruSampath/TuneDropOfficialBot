@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from enum import Enum
 
-from pyrogram.enums import ParseMode
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from tunedrop.app.utils.time_utils import format_bytes, format_duration_mmss, format_seconds
@@ -16,10 +15,10 @@ class DownloadPhase(Enum):
 
 
 _PHASE_CONFIG = {
-    DownloadPhase.SEARCHING: {"emoji": "🎯", "label": "Searching"},
-    DownloadPhase.DOWNLOADING: {"emoji": "📥", "label": "Downloading"},
-    DownloadPhase.CONVERTING: {"emoji": "🎛️", "label": "Converting"},
-    DownloadPhase.UPLOADING: {"emoji": "📤", "label": "Uploading"},
+    DownloadPhase.SEARCHING: {"emoji": "🔍", "label": "Searching"},
+    DownloadPhase.DOWNLOADING: {"emoji": "⬇️", "label": "Downloading"},
+    DownloadPhase.CONVERTING: {"emoji": "🎵", "label": "Converting"},
+    DownloadPhase.UPLOADING: {"emoji": "☁️", "label": "Uploading"},
 }
 
 
@@ -42,10 +41,10 @@ def build_progress_message(
 
     if phase == DownloadPhase.SEARCHING:
         lines.append("")
-        lines.append("<i>Finding your track across multiple sources...</i>")
+        lines.append("<i>Looking across multiple sources...</i>")
     elif phase == DownloadPhase.CONVERTING:
         lines.append("")
-        lines.append("<i>Converting to MP3 (320kbps)...</i>")
+        lines.append("<i>MP3 320kbps</i>")
 
     return "\n".join(lines)
 
@@ -58,16 +57,12 @@ def build_completion_card(
     quality: str = "320kbps",
 ) -> str:
     return "\n".join([
-        "<b>✅ Download Complete</b>",
+        "<b>✅ Sent</b>",
         "",
-        f"<b>🎵 {escape_html(title)}</b>",
+        f"<b>{escape_html(title)}</b>",
         f"<i>{escape_html(artist)}</i>",
         "",
-        f"⏱ <b>Duration:</b> <code>{format_duration_mmss(duration)}</code>",
-        f"📦 <b>Size:</b> <code>{format_bytes(file_size)}</code>",
-        f"🎧 <b>Quality:</b> <code>MP3 {quality}</code>",
-        "",
-        "<i>Delivered by TuneDrop 🎶</i>",
+        f"<code>{format_duration_mmss(duration)}</code>  ·  <code>{format_bytes(file_size)}</code>  ·  <code>MP3 {quality}</code>",
     ])
 
 
@@ -78,8 +73,9 @@ def build_audio_caption(
     quality: str = "320kbps",
 ) -> str:
     return (
-        f"<b>🎵 {escape_html(title)}</b> — <i>{escape_html(artist)}</i>\n"
-        f"⏱ <code>{format_duration_mmss(duration)}</code> | 🎧 <code>{quality}</code>"
+        f"<b>{escape_html(title)}</b>\n"
+        f"<i>{escape_html(artist)}</i>\n"
+        f"<code>{format_duration_mmss(duration)}</code> · <code>{quality}</code>"
     )
 
 
@@ -93,11 +89,9 @@ def build_playlist_completion(
     return "\n".join([
         "<b>✅ Playlist Ready</b>",
         "",
-        f"🎵 <b>Tracks:</b> <code>{track_count}</code>",
-        f"📦 <b>ZIP Size:</b> <code>{format_bytes(file_size)}</code>",
-        f"⏱ <b>Est. Time:</b> <code>{format_seconds(estimated_time)}</code> at {speed_kbps:.0f} KB/s",
+        f"<code>{track_count}</code> tracks  ·  <code>{format_bytes(file_size)}</code>",
+        f"<i>~{format_seconds(estimated_time)} at {speed_kbps:.0f} KB/s</i>",
         "",
-        f"<b>📥 Download:</b>",
         f"<code>{download_link}</code>",
     ])
 
@@ -106,32 +100,27 @@ def build_error_message(error: str) -> str:
     friendly = _translate_error(error)
     suggestions = _get_suggestions(error)
     lines = [
-        "<b>⚠️ Download Failed</b>",
+        "<b>Something went wrong</b>",
         "",
-        "<i>Sorry, something went wrong.</i>",
-        "",
-        "<b>What happened:</b>",
-        f"<code>{escape_html(friendly)}</code>",
+        f"<i>{escape_html(friendly)}</i>",
     ]
     if suggestions:
         lines.append("")
-        lines.append("<b>Try this:</b>")
         for s in suggestions:
-            lines.append(f"• {s}")
-    lines.extend(["", "<i>Need help? Use /help</i>"])
+            lines.append(f"· {s}")
     return "\n".join(lines)
 
 
 def _translate_error(error: str) -> str:
     lowered = error.lower()
     if "timeout" in lowered or "stalled" in lowered:
-        return "Download took too long. The server might be busy."
+        return "Download timed out. The server might be busy."
     if "not found" in lowered or "unavailable" in lowered:
-        return "This track isn't available on our sources."
+        return "This track isn't available right now."
     if "ffmpeg" in lowered or "conversion" in lowered:
         return "Couldn't convert the audio file."
     if "rate limit" in lowered:
-        return "Too many requests. Please wait a moment."
+        return "Too many requests. Wait a moment and try again."
     return error[:200]
 
 
@@ -141,63 +130,51 @@ def _get_suggestions(error: str) -> list[str]:
         return [
             "Check the URL is correct",
             "Try /song &lt;name&gt; to search instead",
-            "The track might be region-locked",
         ]
     if "timeout" in lowered or "stalled" in lowered:
         return [
-            "Try again in a few moments",
-            "Use /cancel and retry",
+            "Try again in a moment",
         ]
     return [
         'Tap "Try Again" below',
         "Try /song &lt;name&gt; to search",
-        "Use /help for more info",
     ]
 
 
 def build_welcome_message() -> str:
     return "\n".join([
-        "<b>🎵 Welcome to TuneDrop</b>",
+        "<b>TuneDrop</b>",
         "",
-        "<i>Your premium music downloader</i>",
+        "<i>Download any song in seconds</i>",
         "",
-        "<b>🎯 Quick Start</b>",
+        "Send a <b>Spotify</b> or <b>YouTube</b> link",
+        "or search with <code>/song</code> <i>name</i>",
         "",
-        "• Send Spotify / YouTube URL",
-        "• Use <code>/song</code> <i>name</i> to search",
-        "• Playlists → ZIP archive",
-        "",
-        "<b>⚙️ Commands</b>",
-        "<code>/help</code> — Usage guide",
-        "<code>/myfiles</code> — Recent downloads",
-        "<code>/cancel</code> — Stop current task",
-        "",
-        "<i>Fast • Free • No ads</i>",
+        "<code>/help</code>  ·  <code>/myfiles</code>  ·  <code>/cancel</code>",
     ])
 
 
 def build_help_message() -> str:
     return "\n".join([
-        "<b>📖 TuneDrop — Help</b>",
+        "<b>How to use TuneDrop</b>",
         "",
-        "<b>🎵 Download a Song</b>",
-        "• Send a Spotify / YouTube / YouTube Music URL",
-        "• Or use <code>/song</code> <i>name</i>",
+        "<b>Download a song</b>",
+        "Send a Spotify / YouTube URL",
+        "or use <code>/song</code> <i>name</i>",
         "",
-        "<b>📦 Playlists</b>",
-        "• Send a playlist URL — all tracks packed into ZIP",
-        "• <code>/myfiles</code> to get your download links",
+        "<b>Download a playlist</b>",
+        "Send a playlist URL",
+        "all tracks packed into a ZIP",
         "",
-        "<b>✅ Controls</b>",
-        "• <code>/cancel</code> or tap the Cancel button",
-        "• Tap Try Again on a failed download",
+        "<code>/myfiles</code> recent downloads",
+        "<code>/cancel</code> stop current task",
     ])
 
 
 def build_welcome_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🎵 Search Song", callback_data="show_search"),
+            InlineKeyboardButton("🎵 Search", callback_data="show_search"),
             InlineKeyboardButton("❓ Help", callback_data="show_help"),
         ],
     ])
@@ -205,11 +182,11 @@ def build_welcome_keyboard() -> InlineKeyboardMarkup:
 
 def build_cancel_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("❌ Cancel", callback_data="cancel")],
+        [InlineKeyboardButton("Cancel", callback_data="cancel")],
     ])
 
 
 def build_retry_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 Try Again", callback_data="retry")],
+        [InlineKeyboardButton("Try Again", callback_data="retry")],
     ])

@@ -81,14 +81,14 @@ class TaskRegistry:
 
         if existing:
             await message.reply_text(
-                "<b>⏳ You already have a running task.</b>",
+                "<b>Already downloading</b>",
                 reply_markup=_CANCEL_MARKUP,
                 parse_mode=ParseMode.HTML,
             )
             return
 
         status_message = await message.reply_text(
-            "<b>🎤 Queued your download request...</b>",
+            "<b>Queued</b>",
             parse_mode=ParseMode.HTML,
         )
         task = DownloadTask(
@@ -115,7 +115,7 @@ class TaskRegistry:
 
         request, runner, app = failed
         try:
-            await message.edit_text("<b>🔄 Retrying...</b>", reply_markup=_CANCEL_MARKUP, parse_mode=ParseMode.HTML)
+            await message.edit_text("<b>Retrying...</b>", reply_markup=_CANCEL_MARKUP, parse_mode=ParseMode.HTML)
         except Exception:
             return False
 
@@ -139,7 +139,7 @@ class TaskRegistry:
         except asyncio.CancelledError:
             task._reply_markup = None
             try:
-                await task.update("<b>❌ Task cancelled.</b>", parse_mode=ParseMode.HTML)
+                await task.update("<b>Cancelled</b>", parse_mode=ParseMode.HTML)
             except asyncio.CancelledError:
                 pass
             raise

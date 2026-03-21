@@ -34,9 +34,9 @@ def register(app: Client) -> None:
         await callback_query.answer()
         try:
             await callback_query.message.edit_text(
-                "<b>🎵 Search for a Song</b>\n\n"
-                "Type <code>/song</code> followed by the song name.\n\n"
-                "<i>Example:</i> <code>/song Blinding Lights</code>",
+                "<b>Search</b>\n\n"
+                "Type <code>/song</code> <i>name</i>\n\n"
+                "<i>e.g. /song Blinding Lights</i>",
                 parse_mode=ParseMode.HTML,
             )
         except Exception:

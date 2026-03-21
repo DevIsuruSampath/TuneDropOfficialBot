@@ -16,8 +16,8 @@ def register(app: Client) -> None:
         query = command_argument(message)
         if not query:
             await message.reply_text(
-                "<b>🎵 Usage:</b> <code>/song</code> <i>song name</i>\n\n"
-                "<i>Example:</i> <code>/song Blinding Lights</code>",
+                "<code>/song</code> <i>name</i>\n\n"
+                "<i>e.g. /song Blinding Lights</i>",
                 parse_mode=ParseMode.HTML,
             )
             return

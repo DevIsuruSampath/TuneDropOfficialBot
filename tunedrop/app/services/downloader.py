@@ -86,7 +86,7 @@ class SubprocessFailure(RuntimeError):
 class MusicDownloadManager:
     async def __call__(self, app: Client, message: Message, task: DownloadTask) -> None:
         request: DownloadRequest = task.request
-        await task.update(f"<b>🔍 Validating request:</b> <code>{escape_html(request.source)}</code>", parse_mode=ParseMode.HTML)
+        await task.update(f"<b>🔍 Looking up</b> <code>{escape_html(request.source)}</code>", parse_mode=ParseMode.HTML)
 
         if request.input_type in {InputType.SPOTIFY_TRACK, InputType.SEARCH, InputType.SPOTIFY_PLAYLIST}:
             await self._handle_spotify_or_search(app, message, task)
