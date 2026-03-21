@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from pyrogram import Client, StopPropagation, filters
+from pyrogram import Client, filters
 
 from tunedrop.app.services.downloader import DownloadRequest, download_manager
 from tunedrop.app.services.progress import task_registry
-from tunedrop.app.utils.filters import fresh, music_input
+from tunedrop.app.utils.decorators import once_per_message
+from tunedrop.app.utils.filters import music_input
 from tunedrop.app.utils.validators import classify_input
 
 
 def register(app: Client) -> None:
-    @app.on_message(fresh & filters.text & ~filters.command(["start", "help", "song", "myfiles", "cancel"]) & music_input)
+    @app.on_message(filters.text & ~filters.command(["start", "help", "song", "myfiles", "cancel"]) & music_input)
+    @once_per_message
     async def url_handler(client: Client, message):
         raw = (message.text or "").strip()
         request = DownloadRequest.from_input(
@@ -19,4 +21,3 @@ def register(app: Client) -> None:
             input_type=classify_input(raw),
         )
         await task_registry.start_download(client, message, request, download_manager)
-        raise StopPropagation

@@ -11,6 +11,22 @@ from tunedrop.app.core.config import settings
 
 Handler = Callable[..., Awaitable[Any]]
 
+_seen_ids: set[int] = set()
+
+
+def once_per_message(handler: Handler) -> Handler:
+    @wraps(handler)
+    async def wrapper(_, message: Message, *args: Any, **kwargs: Any) -> Any:
+        mid = message.id
+        if mid in _seen_ids:
+            return None
+        _seen_ids.add(mid)
+        if len(_seen_ids) > 500:
+            _seen_ids.clear()
+        return await handler(_, message, *args, **kwargs)
+
+    return wrapper  # type: ignore[return-value]
+
 
 def admin_only(handler: Handler) -> Handler:
     @wraps(handler)
