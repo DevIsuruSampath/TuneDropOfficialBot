@@ -111,6 +111,7 @@ class MusicDownloadManager:
 
             audio_file = find_first_file(work_dir, suffix=".mp3")
             thumb_url: str | None = None
+            yt_info: dict[str, Any] | None = None
 
             if not audio_file:
                 yt_url: str | None = None
@@ -124,7 +125,7 @@ class MusicDownloadManager:
                     else:
                         await task.update("\U0001f504 Trying alternative source...")
                     try:
-                        audio_file, thumb_url = await self._run_ytdlp_download(task, yt_url, work_dir)
+                        audio_file, thumb_url, yt_info = await self._run_ytdlp_download(task, yt_url, work_dir)
                     except Exception:
                         logger.exception("yt-dlp download failed")
                     audio_file = find_first_file(work_dir, suffix=".mp3")
@@ -132,7 +133,12 @@ class MusicDownloadManager:
             if not audio_file:
                 raise RuntimeError("Could not download the track. Please try again later.")
 
-            metadata = await read_audio_metadata(audio_file, fallback_title=audio_file.stem)
+            fallback_title = audio_file.stem
+            fallback_artist = "Unknown Artist"
+            if yt_info:
+                fallback_title = str(yt_info.get("title") or fallback_title)
+                fallback_artist = str(yt_info.get("uploader") or yt_info.get("channel") or fallback_artist)
+            metadata = await read_audio_metadata(audio_file, fallback_title=fallback_title, fallback_artist=fallback_artist)
             if thumb_url:
                 thumb_path = await extract_thumbnail_from_url(thumb_url, work_dir / "thumb.jpg")
                 metadata.thumbnail_path = thumb_path
@@ -209,7 +215,7 @@ class MusicDownloadManager:
         thumb_path: Path | None = None
         try:
             await task.update("\U0001f3b5 Downloading audio...")
-            audio_file, _ = await self._run_ytdlp_download(task, task.request.source, work_dir)
+            audio_file, _, _ = await self._run_ytdlp_download(task, task.request.source, work_dir)
             thumb_url = info.get("thumbnail")
             if thumb_url:
                 thumb_path = await extract_thumbnail_from_url(thumb_url, work_dir / "thumb.jpg")
@@ -432,7 +438,7 @@ class MusicDownloadManager:
         return None
 
 
-    async def _run_ytdlp_download(self, task: DownloadTask, url: str, out_dir: Path) -> tuple[Path, str | None]:
+    async def _run_ytdlp_download(self, task: DownloadTask, url: str, out_dir: Path) -> tuple[Path, str | None, dict[str, Any] | None]:
         loop = asyncio.get_running_loop()
 
         def progress_hook(payload: dict[str, Any]) -> None:
@@ -465,19 +471,22 @@ class MusicDownloadManager:
             ],
         }
 
-        def _download() -> tuple[Path, str | None]:
+        def _download() -> tuple[Path, str | None, dict[str, Any] | None]:
             with YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
             thumb_url = None
+            entry: dict[str, Any] | None = None
             if info:
                 if "entries" in info:
-                    thumb_url = info["entries"][0].get("thumbnail") if info["entries"] else None
+                    entry = info["entries"][0] if info["entries"] else None
                 else:
-                    thumb_url = info.get("thumbnail")
+                    entry = info
+            if entry:
+                thumb_url = entry.get("thumbnail")
             file_path = find_first_file(out_dir, suffix=".mp3")
             if not file_path:
                 raise RuntimeError("Download failed.")
-            return file_path, thumb_url
+            return file_path, thumb_url, entry
 
         return await asyncio.wait_for(asyncio.to_thread(_download), timeout=600)
 
