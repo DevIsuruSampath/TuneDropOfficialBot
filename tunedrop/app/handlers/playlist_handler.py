@@ -10,17 +10,17 @@ def register(app: Client) -> None:
     async def myfiles_handler(_, message):
         user = message.from_user
         if not user:
-            await message.reply_text("User not found.")
+            await message.reply_text("\u2753 User not found.")
             return
 
         files = await link_store.list_user_files(user.id)
         if not files:
-            await message.reply_text("No stored playlist files yet.")
+            await message.reply_text("\U0001f4c2 No stored playlist files yet.")
             return
 
-        lines = ["Your recent playlist files:"]
+        lines = ["\U0001f4c2 Your recent playlist files:"]
         for item in files:
             lines.append(
-                f"- {item['name']} | {item['size_text']} | {item['link']}"
+                f"\U0001f4c4 {item['name']} \u2022 {item['size_text']}\n\U0001f517 {item['link']}"
             )
-        await message.reply_text("\n".join(lines), disable_web_page_preview=True)
+        await message.reply_text("\n\n".join(lines), disable_web_page_preview=True)

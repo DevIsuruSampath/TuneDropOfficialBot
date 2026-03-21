@@ -12,7 +12,10 @@ def register(app: Client) -> None:
     async def song_handler(client: Client, message):
         query = command_argument(message)
         if not query:
-            await message.reply_text("Usage: /song <song name>")
+            await message.reply_text(
+                "\U0001f3b5 Usage: /song <song name>\n\n"
+                "Example: /song Blinding Lights"
+            )
             return
 
         request = DownloadRequest.from_search(

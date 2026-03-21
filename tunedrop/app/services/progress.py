@@ -9,7 +9,7 @@ from typing import Any, Awaitable, Callable
 
 from pymongo import UpdateOne
 from pyrogram import Client
-from pyrogram.types import Message
+from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from tunedrop.app.core.database import get_database
 
@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 
 DownloadCallable = Callable[[Client, Message, "DownloadTask"], Awaitable[None]]
+
+_CANCEL_MARKUP = InlineKeyboardMarkup([[InlineKeyboardButton("Cancel", callback_data="cancel")]])
+_RETRY_MARKUP = InlineKeyboardMarkup([[InlineKeyboardButton("Try Again", callback_data="retry")]])
 
 
 @dataclass(slots=True)
@@ -29,13 +32,18 @@ class DownloadTask:
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     worker: asyncio.Task[Any] | None = None
     last_text: str = ""
+    _reply_markup: InlineKeyboardMarkup | None = field(default=None, repr=False)
+    _last_markup: InlineKeyboardMarkup | None = field(default=None, repr=False)
 
     async def update(self, text: str) -> None:
-        if text == self.last_text:
+        if text == self.last_text and self._reply_markup is self._last_markup:
             return
         self.last_text = text
+        self._last_markup = self._reply_markup
         try:
-            await self.status_message.edit_text(text, disable_web_page_preview=True)
+            await self.status_message.edit_text(
+                text, disable_web_page_preview=True, reply_markup=self._reply_markup,
+            )
         except Exception:
             logger.debug("Failed to update status message for user %s", self.user_id, exc_info=True)
 
@@ -46,42 +54,97 @@ class DownloadTask:
 class TaskRegistry:
     def __init__(self) -> None:
         self._tasks: dict[int, DownloadTask] = {}
+        self._failed: dict[int, tuple[Any, DownloadCallable, Client]] = {}
 
     @property
     def active_count(self) -> int:
         return len(self._tasks)
 
+    def has_active(self, user_id: int) -> bool:
+        task = self._tasks.get(user_id)
+        return task is not None and task.worker is not None and not task.worker.done()
+
+    def pop_failed(self, user_id: int) -> tuple[Any, DownloadCallable, Client] | None:
+        return self._failed.pop(user_id, None)
+
     async def start_download(self, app: Client, message: Message, request: Any, runner: DownloadCallable) -> None:
         user_id = request.user_id
+
+        # Auto-cleanup: remove task if its worker already finished
         existing = self._tasks.get(user_id)
+        if existing and (existing.worker is None or existing.worker.done()):
+            self._tasks.pop(user_id, None)
+            existing = None
+
         if existing:
-            await message.reply_text("You already have a running task. Use /cancel first.")
+            await message.reply_text(
+                "\u23f3 You already have a running task.",
+                reply_markup=_CANCEL_MARKUP,
+            )
             return
 
-        status_message = await message.reply_text("Queued your download request...")
+        status_message = await message.reply_text("\U0001f3a4 Queued your download request...")
         task = DownloadTask(
             user_id=user_id,
             chat_id=request.chat_id,
             request=request,
             status_message=status_message,
+            _reply_markup=_CANCEL_MARKUP,
+        )
+        self._tasks[user_id] = task
+        self._failed.pop(user_id, None)
+        await self._persist()
+        task.worker = asyncio.create_task(self._run(app, message, task, request, runner))
+
+    async def retry_download(self, client: Client, message: Message, user_id: int) -> bool:
+        # Auto-cleanup stale entries
+        existing = self._tasks.get(user_id)
+        if existing and (existing.worker is None or existing.worker.done()):
+            self._tasks.pop(user_id, None)
+
+        failed = self._failed.pop(user_id, None)
+        if not failed:
+            return False
+
+        request, runner, app = failed
+        try:
+            await message.edit_text("\U0001f504 Retrying...", reply_markup=_CANCEL_MARKUP)
+        except Exception:
+            return False
+
+        task = DownloadTask(
+            user_id=user_id,
+            chat_id=message.chat.id,
+            request=request,
+            status_message=message,
+            _reply_markup=_CANCEL_MARKUP,
         )
         self._tasks[user_id] = task
         await self._persist()
+        task.worker = asyncio.create_task(self._run(app, message, task, request, runner))
+        return True
 
-        async def _run() -> None:
+    async def _run(self, app: Client, message: Message, task: DownloadTask, request: Any, runner: DownloadCallable) -> None:
+        try:
+            await runner(app, message, task)
+            # Strip cancel button from final success message
+            task._reply_markup = None
+            await task.update(task.last_text)
+        except asyncio.CancelledError:
+            task._reply_markup = None
             try:
-                await runner(app, message, task)
+                await task.update("\u274c Task cancelled.")
             except asyncio.CancelledError:
-                await task.update("Task cancelled.")
-                raise
-            except Exception as exc:
-                logger.exception("Download task failed for user %s", user_id)
-                await task.update(f"Failed: {exc}")
-            finally:
-                self._tasks.pop(user_id, None)
-                await self._persist()
-
-        task.worker = asyncio.create_task(_run())
+                pass
+            raise
+        except Exception as exc:
+            logger.exception("Download task failed for user %s", task.user_id)
+            self._failed[task.user_id] = (request, runner, app)
+            task._reply_markup = _RETRY_MARKUP
+            await task.update(f"\u26a0\ufe0f Failed: {exc}")
+        finally:
+            self._tasks.pop(task.user_id, None)
+            await self._persist()
 
     async def cancel(self, user_id: int) -> bool:
         task = self._tasks.get(user_id)
@@ -103,15 +166,13 @@ class TaskRegistry:
         operations = [
             UpdateOne(
                 {"user_id": user_id},
-                {
-                    "$set": {
-                        "user_id": user_id,
-                        "chat_id": item.chat_id,
-                        "source": item.request.source,
-                        "input_type": str(item.request.input_type),
-                        "created_at": now,
-                    },
-                },
+                {"$set": {
+                    "user_id": user_id,
+                    "chat_id": item.chat_id,
+                    "source": item.request.source,
+                    "input_type": str(item.request.input_type),
+                    "created_at": now,
+                }},
                 upsert=True,
             )
             for user_id, item in self._tasks.items()
