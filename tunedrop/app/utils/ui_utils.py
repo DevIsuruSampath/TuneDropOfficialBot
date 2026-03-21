@@ -24,16 +24,16 @@ def build_progress_message(
     details: str | None = None,
 ) -> str:
     if phase == DownloadPhase.SEARCHING:
-        lines = ["<b>🔍 Searching</b>"]
+        lines = ["<b>🔍 Searching...</b>"]
         if details:
             lines.append(f"<i>{escape_html(details)}</i>")
         return "\n".join(lines)
 
     if phase == DownloadPhase.UPLOADING:
-        return "<b>📤 Uploading</b>"
+        return "<b>📤 Uploading...</b>"
 
     # DOWNLOADING and CONVERTING both show as "Processing"
-    lines = ["<b>⚙️ Processing audio</b>"]
+    lines = ["<b>⚙️ Processing audio...</b>"]
     if percentage is not None:
         lines.append(f"<code>{percentage:.0f}%</code>")
     if details:
@@ -42,7 +42,7 @@ def build_progress_message(
 
 
 def build_completion_message() -> str:
-    return "<b>✅ Sent</b>"
+    return "<b>✅ Ready</b>"
 
 
 def build_audio_caption(
@@ -52,18 +52,19 @@ def build_audio_caption(
     quality: str = "320kbps",
 ) -> str:
     return (
-        f"<b>{escape_html(title)}</b>\n"
-        f"<i>{escape_html(artist)}</i>\n"
-        f"<code>{format_duration_mmss(duration)}</code> · <code>{quality}</code>"
+        f"🎵 <b>{escape_html(title)}</b>\n"
+        f"👤 {escape_html(artist)}\n\n"
+        f"⏱ {format_duration_mmss(duration)}   🎧 {quality}"
     )
 
 
 def build_audio_keyboard(bot_username: str) -> InlineKeyboardMarkup:
-    share_url = f"https://t.me/share/url?url=https://t.me/{bot_username}&text=TuneDrop%20%E2%80%93%20Download%20any%20song%20%E2%9C%94"
+    bot_link = f"https://t.me/{bot_username}?start=share"
+    share_url = f"https://t.me/share/url?url={bot_link}&text=Download%20songs%20instantly%20with%20TuneDrop%20%F0%9F%8E%A7"
     return InlineKeyboardMarkup([
         [
+            InlineKeyboardButton("🎧 Try TuneDrop", url=bot_link),
             InlineKeyboardButton("📤 Share", url=share_url),
-            InlineKeyboardButton("🤖 Open Bot", url=f"https://t.me/{bot_username}"),
         ],
     ])
 
@@ -86,27 +87,7 @@ def build_playlist_completion(
 
 
 def build_error_message(error: str) -> str:
-    friendly = _translate_error(error)
-    return "\n".join([
-        "<b>Something went wrong</b>",
-        "",
-        f"<i>{escape_html(friendly)}</i>",
-        "",
-        'Tap "Try Again" below',
-    ])
-
-
-def _translate_error(error: str) -> str:
-    lowered = error.lower()
-    if "timeout" in lowered or "stalled" in lowered:
-        return "Download timed out. Try again."
-    if "not found" in lowered or "unavailable" in lowered:
-        return "Track not available."
-    if "ffmpeg" in lowered or "conversion" in lowered:
-        return "Couldn't convert the audio."
-    if "rate limit" in lowered:
-        return "Too many requests. Wait a moment."
-    return error[:200]
+    return "<b>❌ Failed. Try again.</b>"
 
 
 def build_welcome_message() -> str:
