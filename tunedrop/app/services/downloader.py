@@ -21,7 +21,7 @@ from tunedrop.app.services.link_generator import link_store
 from tunedrop.app.services.metadata import read_audio_metadata
 from tunedrop.app.services.progress import DownloadTask
 from tunedrop.app.services.uploader import upload_zip_to_storage
-from tunedrop.app.services.youtube_service import extract_info
+from tunedrop.app.services.youtube_service import _base_ytdlp_opts, extract_info
 from tunedrop.app.services.zip_service import build_zip
 from tunedrop.app.utils.ffmpeg_utils import extract_thumbnail_from_url
 from tunedrop.app.utils.file_utils import (
@@ -440,10 +440,10 @@ class MusicDownloadManager:
 
         output_template = str(out_dir / "%(title)s.%(ext)s")
         ydl_opts = {
+            **_base_ytdlp_opts(),
             "format": "bestaudio/best",
             "outtmpl": output_template,
             "noplaylist": True,
-            "quiet": True,
             "windowsfilenames": True,
             "restrictfilenames": True,
             "progress_hooks": [progress_hook],
@@ -454,7 +454,6 @@ class MusicDownloadManager:
                     "preferredquality": "320",
                 }
             ],
-            "js_runtimes": {"node": {}},
         }
 
         def _download() -> Path:
@@ -479,9 +478,9 @@ class MusicDownloadManager:
                 )
 
         ydl_opts = {
+            **_base_ytdlp_opts(),
             "format": "bestaudio/best",
             "outtmpl": str(out_dir / "%(playlist_index)s - %(title)s.%(ext)s"),
-            "quiet": True,
             "windowsfilenames": True,
             "restrictfilenames": True,
             "progress_hooks": [progress_hook],
@@ -493,7 +492,6 @@ class MusicDownloadManager:
                 }
             ],
             "playlistend": settings.max_playlist_items,
-            "js_runtimes": {"node": {}},
         }
 
         def _download() -> None:

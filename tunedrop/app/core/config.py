@@ -56,6 +56,7 @@ class Settings:
         }
     )
     spotify_cookie_file: str = os.getenv("SPOTDL_COOKIE_FILE", "")
+    ytdlp_cookie_file: str = os.getenv("YTDLP_COOKIE_FILE", "")
     spotify_client_id: str = os.getenv("SPOTIFY_CLIENT_ID", "")
     spotify_client_secret: str = os.getenv("SPOTIFY_CLIENT_SECRET", "")
     mongodb_uri: str = os.getenv("MONGODB_URI", "mongodb://localhost:27017/")
