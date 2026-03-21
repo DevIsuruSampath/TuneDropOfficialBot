@@ -337,24 +337,23 @@ class MusicDownloadManager:
                 text = line.decode("utf-8", errors="replace").strip()
                 if text:
                     recent_lines.append(text)
-                    if self._is_subprocess_error_line(name, text):
+                    is_error = self._is_subprocess_error_line(name, text)
+                    if is_error:
                         error_lines.append(text)
                     logger.info("%s: %s", name, text)
-                    progress_text = self._map_subprocess_progress(name, text)
-                    if progress_text:
-                        await task.update(progress_text[:4000])
+                    if not is_error:
+                        progress_text = self._map_subprocess_progress(name, text)
+                        if progress_text:
+                            await task.update(progress_text[:4000])
             code = await process.wait()
             if code != 0:
-                last_detail = recent_lines[-1] if recent_lines else "No error details captured."
+                last_detail = error_lines[-1] if error_lines else (recent_lines[-1] if recent_lines else "No error details captured.")
                 raise SubprocessFailure(
                     f"{name} exited with code {code}. Last output: {last_detail}",
                     SubprocessResult(recent_lines=tuple(recent_lines), error_lines=tuple(error_lines)),
                 )
             if error_lines:
-                raise SubprocessFailure(
-                    f"{name} failed. Last output: {error_lines[-1]}",
-                    SubprocessResult(recent_lines=tuple(recent_lines), error_lines=tuple(error_lines)),
-                )
+                logger.warning("%s exited successfully but produced error lines: %s", name, error_lines[-1])
             return SubprocessResult(recent_lines=tuple(recent_lines), error_lines=tuple(error_lines))
         finally:
             with contextlib.suppress(ProcessLookupError):
