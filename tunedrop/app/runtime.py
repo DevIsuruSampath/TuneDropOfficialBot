@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import fcntl
+import os
 from enum import StrEnum
 from typing import Final
 
@@ -26,15 +28,41 @@ def configure_runtime(mode: RunMode) -> None:
     setup_logging()
 
 
-async def run_bot() -> None:
-    bot = create_bot_client()
-    register_handlers(bot)
-    await bot.start()
+def _acquire_pid_lock() -> int:
+    """Acquire an exclusive file lock to prevent multiple bot instances.
+
+    Returns the file descriptor that holds the lock.  The lock is
+    automatically released when the descriptor is closed (on process exit).
+    """
+    lock_path = settings.data_dir / "bot.pid"
+    fd = os.open(str(lock_path), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o644)
     try:
-        await register_bot_commands(bot)
-        await asyncio.Event().wait()
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        existing = lock_path.read_text().strip() if lock_path.exists() else "?"
+        raise RuntimeError(
+            f"Another bot instance is already running (PID {existing}). "
+            f"Stop it before starting a new one."
+        )
+    os.write(fd, str(os.getpid()).encode())
+    return fd
+
+
+async def run_bot() -> None:
+    pid_fd = _acquire_pid_lock()
+    try:
+        bot = create_bot_client()
+        register_handlers(bot)
+        await bot.start()
+        try:
+            await register_bot_commands(bot)
+            await asyncio.Event().wait()
+        finally:
+            await bot.stop()
     finally:
-        await bot.stop()
+        fcntl.flock(pid_fd, fcntl.LOCK_UN)
+        os.close(pid_fd)
 
 
 async def run_web_server() -> None:
