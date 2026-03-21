@@ -22,6 +22,11 @@ def format_seconds(seconds: float | int) -> str:
     return f"{secs}s"
 
 
+def format_duration_mmss(seconds: int) -> str:
+    minutes, secs = divmod(seconds, 60)
+    return f"{minutes}:{secs:02d}"
+
+
 def estimate_download_time(size_bytes: int, speed_kbps: float) -> int:
     if speed_kbps <= 0:
         return 0

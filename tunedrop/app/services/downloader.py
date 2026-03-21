@@ -31,7 +31,7 @@ from tunedrop.app.utils.file_utils import (
     list_audio_files,
     sanitize_filename,
 )
-from tunedrop.app.utils.time_utils import estimate_download_time, format_bytes, format_seconds
+from tunedrop.app.utils.time_utils import estimate_download_time, format_bytes, format_seconds, format_duration_mmss
 from tunedrop.app.utils.validators import InputType
 
 
@@ -132,9 +132,21 @@ class MusicDownloadManager:
                 raise RuntimeError("Could not download the track. Please try again later.")
 
             metadata = await read_audio_metadata(audio_file, fallback_title=audio_file.stem)
-            await task.update("\U0001f4e4 Uploading track...")
+            file_size = audio_file.stat().st_size
+            await task.update("\U0001f4e4 Uploading song...")
             await self._send_audio(app, message, audio_file, metadata)
-            await task.update("\u2705 Completed.")
+            await task.update(
+                "\n".join(
+                    [
+                        "\u2705 Completed.",
+                        "",
+                        f"\U0001f3b5 {metadata.title}",
+                        f"\U0001f9d1\u200d\U0001f3a8 {metadata.artist}",
+                        f"\u23f1 {format_duration_mmss(metadata.duration)}",
+                        f"\U0001f4be {format_bytes(file_size)} | MP3 320kbps",
+                    ]
+                )
+            )
         finally:
             await cleanup_paths([work_dir])
 
@@ -203,9 +215,21 @@ class MusicDownloadManager:
                 fallback_artist=str(info.get("uploader") or info.get("channel") or "Unknown Artist"),
             )
             metadata.thumbnail_path = thumb_path
-            await task.update("\U0001f4e4 Uploading track...")
+            file_size = audio_file.stat().st_size
+            await task.update("\U0001f4e4 Uploading song...")
             await self._send_audio(app, message, audio_file, metadata)
-            await task.update("\u2705 Completed.")
+            await task.update(
+                "\n".join(
+                    [
+                        "\u2705 Completed.",
+                        "",
+                        f"\U0001f3b5 {metadata.title}",
+                        f"\U0001f9d1\u200d\U0001f3a8 {metadata.artist}",
+                        f"\u23f1 {format_duration_mmss(metadata.duration)}",
+                        f"\U0001f4be {format_bytes(file_size)} | MP3 320kbps",
+                    ]
+                )
+            )
         finally:
             await cleanup_paths([work_dir])
 
@@ -249,9 +273,15 @@ class MusicDownloadManager:
             await cleanup_paths([playlist_dir, zip_path])
 
     async def _send_audio(self, app: Client, message: Message, audio_file: Path, metadata: Any) -> None:
+        caption = (
+            f"\U0001f3b5 {metadata.title}\n"
+            f"\U0001f9d1\u200d\U0001f3a8 {metadata.artist}\n"
+            f"\u23f1 {format_duration_mmss(metadata.duration)} | MP3 320kbps"
+        )
         await app.send_audio(
             chat_id=message.chat.id,
             audio=str(audio_file),
+            caption=caption,
             title=metadata.title,
             performer=metadata.artist,
             duration=metadata.duration,
@@ -410,7 +440,7 @@ class MusicDownloadManager:
                 text = f"\U0001f3b5 Downloading: {percent:.1f}%"
                 asyncio.run_coroutine_threadsafe(task.update(text), loop)
             elif status == "finished":
-                asyncio.run_coroutine_threadsafe(task.update("Converting to MP3 (320kbps)..."), loop)
+                asyncio.run_coroutine_threadsafe(task.update("\U0001f4a7 Converting to MP3 (320kbps)..."), loop)
 
         output_template = str(out_dir / "%(title)s.%(ext)s")
         ydl_opts = {
