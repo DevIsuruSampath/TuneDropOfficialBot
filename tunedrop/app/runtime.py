@@ -71,7 +71,15 @@ async def run_mode(mode: str | RunMode) -> None:
             await run_web_server()
             return
 
-        await asyncio.gather(run_bot(), run_web_server())
+        bot_task = asyncio.create_task(run_bot())
+        web_task = asyncio.create_task(run_web_server())
+        done, pending = await asyncio.wait(
+            [bot_task, web_task], return_when=asyncio.FIRST_COMPLETED,
+        )
+        for t in pending:
+            t.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
     finally:
         await close_database()
 
