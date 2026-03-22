@@ -18,6 +18,7 @@ from pyrogram.types import InlineKeyboardMarkup, Message
 from yt_dlp import YoutubeDL
 
 from tunedrop.app.core.config import settings
+from tunedrop.app.services.cache_service import generate_cache_key, song_cache
 from tunedrop.app.services.link_generator import link_store
 from tunedrop.app.services.metadata import read_audio_metadata
 from tunedrop.app.services.progress import DownloadTask
@@ -107,6 +108,19 @@ class MusicDownloadManager:
             await self._download_spotify_track(app, message, task)
 
     async def _download_spotify_track(self, app: Client, message: Message, task: DownloadTask) -> None:
+        # Check cache first for Spotify tracks
+        cache_key, cache_key_type = generate_cache_key(task.request.source, task.request.input_type)
+        if cache_key:
+            cached = await song_cache.get_cached_song(cache_key)
+            if cached:
+                try:
+                    await self._send_cached_audio(app, message, cached)
+                    await task.update(build_completion_message(), parse_mode=ParseMode.HTML)
+                    return
+                except Exception:
+                    logger.warning("Cached file send failed for %s, re-downloading", cache_key)
+                    await song_cache.invalidate_cache(cache_key)
+
         work_dir = await ensure_clean_directory(settings.temp_dir / f"{task.user_id}_{int(time.time())}")
         try:
             await task.update(build_progress_message(DownloadPhase.SEARCHING), parse_mode=ParseMode.HTML)
@@ -153,6 +167,29 @@ class MusicDownloadManager:
                 thumb_path = await extract_thumbnail_from_url(thumb_url, work_dir / "thumb.jpg")
                 metadata.thumbnail_path = thumb_path
             file_size = audio_file.stat().st_size
+
+            # Cache the downloaded song
+            cache_key, cache_key_type = generate_cache_key(task.request.source, task.request.input_type, yt_info)
+            if cache_key:
+                try:
+                    await task.update(build_progress_message(DownloadPhase.UPLOADING), parse_mode=ParseMode.HTML)
+                    thumb_for_cache = metadata.thumbnail_path
+                    audio_file_id, thumb_file_id = await song_cache.upload_to_cache_channel(
+                        app, audio_file, metadata.title, metadata.artist, metadata.duration, thumb_for_cache,
+                    )
+                    await song_cache.cache_song(
+                        cache_key=cache_key,
+                        key_type=cache_key_type,
+                        file_id=audio_file_id,
+                        title=metadata.title,
+                        artist=metadata.artist,
+                        duration=metadata.duration,
+                        file_size=file_size,
+                        thumbnail_file_id=thumb_file_id,
+                    )
+                except Exception:
+                    logger.exception("Failed to cache song, sending directly to user")
+
             await task.update(build_progress_message(DownloadPhase.UPLOADING), parse_mode=ParseMode.HTML)
             me = await app.get_me()
             audio_markup = build_audio_keyboard(me.username) if me and me.username else None
@@ -211,6 +248,19 @@ class MusicDownloadManager:
             await self._download_youtube_track(app, message, task, info)
 
     async def _download_youtube_track(self, app: Client, message: Message, task: DownloadTask, info: dict[str, Any]) -> None:
+        # Check cache first
+        cache_key, cache_key_type = generate_cache_key(task.request.source, task.request.input_type, info)
+        if cache_key:
+            cached = await song_cache.get_cached_song(cache_key)
+            if cached:
+                try:
+                    await self._send_cached_audio(app, message, cached)
+                    await task.update(build_completion_message(), parse_mode=ParseMode.HTML)
+                    return
+                except Exception:
+                    logger.warning("Cached file send failed for %s, re-downloading", cache_key)
+                    await song_cache.invalidate_cache(cache_key)
+
         work_dir = await ensure_clean_directory(settings.temp_dir / f"yt_{task.user_id}_{int(time.time())}")
         thumb_path: Path | None = None
         try:
@@ -226,6 +276,27 @@ class MusicDownloadManager:
             )
             metadata.thumbnail_path = thumb_path
             file_size = audio_file.stat().st_size
+
+            # Cache the downloaded song
+            if cache_key:
+                try:
+                    await task.update(build_progress_message(DownloadPhase.UPLOADING), parse_mode=ParseMode.HTML)
+                    audio_file_id, thumb_file_id = await song_cache.upload_to_cache_channel(
+                        app, audio_file, metadata.title, metadata.artist, metadata.duration, thumb_path,
+                    )
+                    await song_cache.cache_song(
+                        cache_key=cache_key,
+                        key_type=cache_key_type,
+                        file_id=audio_file_id,
+                        title=metadata.title,
+                        artist=metadata.artist,
+                        duration=metadata.duration,
+                        file_size=file_size,
+                        thumbnail_file_id=thumb_file_id,
+                    )
+                except Exception:
+                    logger.exception("Failed to cache song, sending directly to user")
+
             await task.update(build_progress_message(DownloadPhase.UPLOADING), parse_mode=ParseMode.HTML)
             me = await app.get_me()
             audio_markup = build_audio_keyboard(me.username) if me and me.username else None
@@ -289,6 +360,28 @@ class MusicDownloadManager:
             performer=metadata.artist,
             duration=metadata.duration,
             thumb=str(metadata.thumbnail_path) if metadata.thumbnail_path and metadata.thumbnail_path.exists() else None,
+        )
+
+    async def _send_cached_audio(self, app: Client, message: Message, cached: dict[str, Any]) -> None:
+        """Send a cached song to the user using the stored Telegram file_id."""
+        me = await app.get_me()
+        audio_markup = build_audio_keyboard(me.username) if me and me.username else None
+        caption = build_audio_caption(
+            title=cached["title"],
+            artist=cached["artist"],
+            duration=cached["duration"],
+        )
+        thumb = cached.get("thumbnail_file_id") or None
+        await app.send_audio(
+            chat_id=message.chat.id,
+            audio=cached["telegram_file_id"],
+            caption=caption,
+            parse_mode=ParseMode.HTML,
+            reply_markup=audio_markup,
+            title=cached["title"],
+            performer=cached["artist"],
+            duration=cached["duration"],
+            thumb=thumb,
         )
 
     async def _run_spotdl(
