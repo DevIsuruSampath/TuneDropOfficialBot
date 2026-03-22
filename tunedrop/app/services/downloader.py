@@ -108,7 +108,7 @@ class MusicDownloadManager:
             await self._download_spotify_track(app, message, task)
 
     async def _download_spotify_track(self, app: Client, message: Message, task: DownloadTask) -> None:
-        # Check cache first for Spotify tracks
+        # Check cache first for Spotify/YouTube URL tracks
         cache_key, cache_key_type = generate_cache_key(task.request.source, task.request.input_type)
         if cache_key:
             cached = await song_cache.get_cached_song(cache_key)
@@ -141,6 +141,13 @@ class MusicDownloadManager:
                 yt_url: str | None = None
                 if spotdl_result:
                     yt_url = self._extract_youtube_url(spotdl_result)
+
+                # For search queries, resolve to YouTube video first to check cache
+                if not yt_url and task.request.input_type == InputType.SEARCH:
+                    yt_url = await self._resolve_search_and_check_cache(app, message, task)
+                    if yt_url is None:
+                        return  # Cache hit — song already sent
+
                 if not yt_url:
                     yt_url = f"ytsearch1:{task.request.source}"
                 if yt_url:
@@ -173,9 +180,8 @@ class MusicDownloadManager:
             if cache_key:
                 try:
                     await task.update(build_progress_message(DownloadPhase.UPLOADING), parse_mode=ParseMode.HTML)
-                    thumb_for_cache = metadata.thumbnail_path
                     audio_file_id, thumb_file_id = await song_cache.upload_to_cache_channel(
-                        app, audio_file, metadata.title, metadata.artist, metadata.duration, thumb_for_cache,
+                        app, audio_file, metadata.title, metadata.artist, metadata.duration, metadata.thumbnail_path,
                     )
                     await song_cache.cache_song(
                         cache_key=cache_key,
@@ -190,7 +196,6 @@ class MusicDownloadManager:
                 except Exception:
                     logger.exception("Failed to cache song, sending directly to user")
 
-            await task.update(build_progress_message(DownloadPhase.UPLOADING), parse_mode=ParseMode.HTML)
             me = await app.get_me()
             audio_markup = build_audio_keyboard(me.username) if me and me.username else None
             await self._send_audio(app, message, audio_file, metadata, reply_markup=audio_markup)
@@ -297,7 +302,6 @@ class MusicDownloadManager:
                 except Exception:
                     logger.exception("Failed to cache song, sending directly to user")
 
-            await task.update(build_progress_message(DownloadPhase.UPLOADING), parse_mode=ParseMode.HTML)
             me = await app.get_me()
             audio_markup = build_audio_keyboard(me.username) if me and me.username else None
             await self._send_audio(app, message, audio_file, metadata, reply_markup=audio_markup)
@@ -342,6 +346,40 @@ class MusicDownloadManager:
             )
         finally:
             await cleanup_paths([playlist_dir, zip_path])
+
+    async def _resolve_search_and_check_cache(self, app: Client, message: Message, task: DownloadTask) -> str | None:
+        """Resolve a search query to a YouTube URL, checking cache.
+
+        Returns the YouTube URL if not cached (caller should download).
+        Returns None if cache hit (song already sent to user).
+        Raises nothing — falls back to ytsearch on failure.
+        """
+        try:
+            search_info = await extract_info(f"ytsearch1:{task.request.source}")
+            entries = search_info.get("entries") or []
+            if not entries:
+                return None
+            entry = entries[0]
+            yt_id = entry.get("id")
+            if not yt_id:
+                return None
+
+            cache_key, _ = generate_cache_key(task.request.source, task.request.input_type, entry)
+            if cache_key:
+                cached = await song_cache.get_cached_song(cache_key)
+                if cached:
+                    try:
+                        await self._send_cached_audio(app, message, cached)
+                        await task.update(build_completion_message(), parse_mode=ParseMode.HTML)
+                        return None  # Cache hit
+                    except Exception:
+                        logger.warning("Cached file send failed for %s, re-downloading", cache_key)
+                        await song_cache.invalidate_cache(cache_key)
+
+            return f"https://www.youtube.com/watch?v={yt_id}"
+        except Exception:
+            logger.exception("Search resolution failed, falling back to ytsearch download")
+            return None
 
     async def _send_audio(self, app: Client, message: Message, audio_file: Path, metadata: Any, reply_markup: InlineKeyboardMarkup | None = None) -> None:
         caption = build_audio_caption(

@@ -104,7 +104,10 @@ class SongCache:
         """Upload an audio file to the cache channel.
 
         Returns (audio_file_id, thumbnail_file_id_or_None).
+        Raises RuntimeError if SONG_CACHE_CHANNEL_ID is not configured.
         """
+        if not settings.song_cache_channel_id:
+            raise RuntimeError("SONG_CACHE_CHANNEL_ID is not configured.")
         message: Message = await app.send_audio(
             chat_id=settings.song_cache_channel_id,
             audio=str(audio_file),
