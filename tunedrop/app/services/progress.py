@@ -37,10 +37,14 @@ class DownloadTask:
     last_text: str = ""
     _reply_markup: InlineKeyboardMarkup | None = field(default=None, repr=False)
     _last_markup: InlineKeyboardMarkup | None = field(default=None, repr=False)
+    _updating: bool = field(default=False, repr=False)
 
     async def update(self, text: str, parse_mode: str | None = None) -> None:
+        if self._updating:
+            return
         if text == self.last_text and self._reply_markup is self._last_markup:
             return
+        self._updating = True
         self.last_text = text
         self._last_markup = self._reply_markup
         try:
@@ -49,6 +53,8 @@ class DownloadTask:
             )
         except Exception:
             logger.debug("Failed to update status message for user %s", self.user_id, exc_info=True)
+        finally:
+            self._updating = False
 
     def cancelled(self) -> bool:
         return self.cancel_event.is_set()
