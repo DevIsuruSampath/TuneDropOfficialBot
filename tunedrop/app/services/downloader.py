@@ -609,7 +609,8 @@ class MusicDownloadManager:
                 total = payload.get("total_bytes") or payload.get("total_bytes_estimate") or 0
                 downloaded = payload.get("downloaded_bytes") or 0
                 percent = (downloaded / total * 100) if total else 0
-                text = build_progress_message(DownloadPhase.DOWNLOADING, percentage=percent)
+                eta = payload.get("eta")  # seconds remaining from yt-dlp
+                text = build_progress_message(DownloadPhase.DOWNLOADING, percentage=percent, eta=eta)
                 asyncio.run_coroutine_threadsafe(task.update(text, parse_mode=ParseMode.HTML), loop)
             elif status == "finished":
                 text = build_progress_message(DownloadPhase.CONVERTING)
@@ -663,6 +664,7 @@ class MusicDownloadManager:
                 total = payload.get("total_bytes") or payload.get("total_bytes_estimate") or 0
                 downloaded = payload.get("downloaded_bytes") or 0
                 percent = (downloaded / total * 100) if total else 0
+                eta = payload.get("eta")
                 idx = payload.get("playlist_index", "?")
                 n_entries = payload.get("playlist_count", "?")
                 asyncio.run_coroutine_threadsafe(
@@ -670,6 +672,7 @@ class MusicDownloadManager:
                         build_progress_message(
                             DownloadPhase.DOWNLOADING,
                             percentage=percent,
+                            eta=eta,
                             details=f"Track {idx}/{n_entries}: {filename}",
                         ),
                         parse_mode=ParseMode.HTML,
