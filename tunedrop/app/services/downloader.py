@@ -39,6 +39,7 @@ from tunedrop.app.utils.ui_utils import (
     build_audio_caption,
     build_audio_keyboard,
     build_completion_message,
+    build_large_file_message,
     build_playlist_completion,
     build_progress_message,
     escape_html,
@@ -47,6 +48,8 @@ from tunedrop.app.utils.validators import InputType
 
 
 logger = logging.getLogger(__name__)
+
+_TELEGRAM_BOT_UPLOAD_LIMIT = 50 * 1024 * 1024  # 50MB
 
 
 @dataclass(slots=True)
@@ -196,9 +199,7 @@ class MusicDownloadManager:
                 except Exception:
                     logger.exception("Failed to cache song, sending directly to user")
 
-            me = await app.get_me()
-            audio_markup = build_audio_keyboard(me.username) if me and me.username else None
-            await self._send_audio(app, message, audio_file, metadata, reply_markup=audio_markup)
+            await self._deliver_audio(app, message, audio_file, metadata, task)
             await task.update(build_completion_message(), parse_mode=ParseMode.HTML)
         finally:
             await cleanup_paths([work_dir])
@@ -302,9 +303,7 @@ class MusicDownloadManager:
                 except Exception:
                     logger.exception("Failed to cache song, sending directly to user")
 
-            me = await app.get_me()
-            audio_markup = build_audio_keyboard(me.username) if me and me.username else None
-            await self._send_audio(app, message, audio_file, metadata, reply_markup=audio_markup)
+            await self._deliver_audio(app, message, audio_file, metadata, task)
             await task.update(build_completion_message(), parse_mode=ParseMode.HTML)
         finally:
             await cleanup_paths([work_dir])
@@ -421,6 +420,46 @@ class MusicDownloadManager:
             duration=cached["duration"],
             thumb=thumb,
         )
+
+    async def _send_large_audio(self, app: Client, message: Message, audio_file: Path, metadata: Any, task: DownloadTask) -> None:
+        """Upload large audio (>50MB) to private channel and send download link."""
+        upload = await upload_zip_to_storage(app, audio_file, caption=f"{metadata.title} - {metadata.artist}")
+        link = await link_store.create_link(
+            user_id=task.user_id,
+            payload={
+                "chat_id": settings.private_channel_id,
+                "message_id": upload.message_id,
+                "file_id": upload.file_id,
+                "file_name": upload.file_name,
+                "file_size": upload.file_size,
+            },
+        )
+        eta_seconds = estimate_download_time(upload.file_size, settings.download_speed_kbps)
+        text = build_large_file_message(
+            title=metadata.title,
+            artist=metadata.artist,
+            duration=metadata.duration,
+            file_size=upload.file_size,
+            download_link=link,
+            estimated_time=eta_seconds,
+            speed_kbps=settings.download_speed_kbps,
+        )
+        await app.send_message(
+            chat_id=message.chat.id,
+            text=text,
+            disable_web_page_preview=True,
+            parse_mode=ParseMode.HTML,
+        )
+
+    async def _deliver_audio(self, app: Client, message: Message, audio_file: Path, metadata: Any, task: DownloadTask) -> None:
+        """Send audio directly if under 50MB, otherwise upload to channel and send link."""
+        file_size = audio_file.stat().st_size
+        if file_size <= _TELEGRAM_BOT_UPLOAD_LIMIT:
+            me = await app.get_me()
+            audio_markup = build_audio_keyboard(me.username) if me and me.username else None
+            await self._send_audio(app, message, audio_file, metadata, reply_markup=audio_markup)
+        else:
+            await self._send_large_audio(app, message, audio_file, metadata, task)
 
     async def _run_spotdl(
         self,

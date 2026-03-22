@@ -90,6 +90,26 @@ def build_error_message(error: str) -> str:
     return "<b>❌ Failed. Try again.</b>"
 
 
+def build_large_file_message(
+    title: str,
+    artist: str,
+    duration: int,
+    file_size: int,
+    download_link: str,
+    estimated_time: int,
+    speed_kbps: float,
+) -> str:
+    return "\n".join([
+        f"🎵 <b>{escape_html(title)}</b>",
+        f"👤 {escape_html(artist)}",
+        "",
+        f"<code>{format_bytes(file_size)}</code> · ⏱ {format_duration_mmss(duration)}",
+        f"<i>~{format_seconds(estimated_time)} at {speed_kbps:.0f} KB/s</i>",
+        "",
+        f"<code>{download_link}</code>",
+    ])
+
+
 def build_welcome_message() -> str:
     return "\n".join([
         "<b>TuneDrop</b>",
