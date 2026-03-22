@@ -87,7 +87,7 @@ def build_playlist_completion(
 
 
 def build_error_message(error: str) -> str:
-    return "<b>❌ Failed. Try again.</b>"
+    return f"<b>❌ Failed. Try again.</b>\n\n<i>{escape_html(error)}</i>"
 
 
 def build_large_file_message(
