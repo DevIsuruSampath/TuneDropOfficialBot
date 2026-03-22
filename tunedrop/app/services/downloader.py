@@ -50,6 +50,7 @@ from tunedrop.app.utils.validators import InputType
 logger = logging.getLogger(__name__)
 
 _TELEGRAM_BOT_UPLOAD_LIMIT = 50 * 1024 * 1024  # 50MB
+_PROGRESS_UPDATE_INTERVAL = 4.0  # seconds between Telegram message edits
 
 
 @dataclass(slots=True)
@@ -602,8 +603,12 @@ class MusicDownloadManager:
 
     async def _run_ytdlp_download(self, task: DownloadTask, url: str, out_dir: Path, timeout: float = 600) -> tuple[Path, str | None, dict[str, Any] | None]:
         loop = asyncio.get_running_loop()
+        last_progress_time = [0.0]  # mutable container for closure
 
         def progress_hook(payload: dict[str, Any]) -> None:
+            now = time.monotonic()
+            if now - last_progress_time[0] < _PROGRESS_UPDATE_INTERVAL:
+                return
             status = payload.get("status")
             if status == "downloading":
                 total = payload.get("total_bytes") or payload.get("total_bytes_estimate") or 0
@@ -611,8 +616,10 @@ class MusicDownloadManager:
                 percent = (downloaded / total * 100) if total else 0
                 eta = payload.get("eta")  # seconds remaining from yt-dlp
                 text = build_progress_message(DownloadPhase.DOWNLOADING, percentage=percent, eta=eta)
+                last_progress_time[0] = now
                 asyncio.run_coroutine_threadsafe(task.update(text, parse_mode=ParseMode.HTML), loop)
             elif status == "finished":
+                last_progress_time[0] = now
                 text = build_progress_message(DownloadPhase.CONVERTING)
                 asyncio.run_coroutine_threadsafe(task.update(text, parse_mode=ParseMode.HTML), loop)
 
@@ -656,8 +663,12 @@ class MusicDownloadManager:
 
     async def _run_ytdlp_playlist(self, task: DownloadTask, url: str, out_dir: Path) -> None:
         loop = asyncio.get_running_loop()
+        last_progress_time = [0.0]
 
         def progress_hook(payload: dict[str, Any]) -> None:
+            now = time.monotonic()
+            if now - last_progress_time[0] < _PROGRESS_UPDATE_INTERVAL:
+                return
             status = payload.get("status")
             if status == "downloading":
                 filename = Path(str(payload.get("filename") or "")).stem
@@ -667,6 +678,7 @@ class MusicDownloadManager:
                 eta = payload.get("eta")
                 idx = payload.get("playlist_index", "?")
                 n_entries = payload.get("playlist_count", "?")
+                last_progress_time[0] = now
                 asyncio.run_coroutine_threadsafe(
                     task.update(
                         build_progress_message(
@@ -681,6 +693,7 @@ class MusicDownloadManager:
                 )
             elif status == "processing":
                 filename = Path(str(payload.get("filename") or "")).stem
+                last_progress_time[0] = now
                 asyncio.run_coroutine_threadsafe(
                     task.update(
                         build_progress_message(DownloadPhase.CONVERTING, details=filename),

@@ -150,7 +150,10 @@ class TaskRegistry:
             await task.update(build_error_message(str(exc)), parse_mode=ParseMode.HTML)
         finally:
             self._tasks.pop(task.user_id, None)
-            await self._persist()
+            try:
+                await self._persist()
+            except RuntimeError:
+                pass  # Database already closed during shutdown
 
     async def cancel(self, user_id: int) -> bool:
         task = self._tasks.get(user_id)
