@@ -17,7 +17,7 @@ from tunedrop.app.utils.validators import InputType
 
 logger = logging.getLogger(__name__)
 
-_SPOTIFY_ID_RE = re.compile(r"/(?:track|album|playlist)/([A-Za-z0-9]+)")
+_SPOTIFY_ID_RE = re.compile(r"/track/([A-Za-z0-9]+)")
 _YOUTUBE_ID_RE = re.compile(r"(?:v=|youtu\.be/|embed/)([A-Za-z0-9_-]{11})")
 
 
