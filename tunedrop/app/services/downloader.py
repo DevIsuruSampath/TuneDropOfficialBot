@@ -50,7 +50,6 @@ from tunedrop.app.utils.validators import InputType
 logger = logging.getLogger(__name__)
 
 _TELEGRAM_BOT_UPLOAD_LIMIT = 50 * 1024 * 1024  # 50MB
-_MAX_DURATION_SECONDS = 3 * 3600  # 3 hours
 
 
 @dataclass(slots=True)
@@ -255,12 +254,6 @@ class MusicDownloadManager:
             await self._download_youtube_track(app, message, task, info)
 
     async def _download_youtube_track(self, app: Client, message: Message, task: DownloadTask, info: dict[str, Any]) -> None:
-        # Reject videos that are too long
-        duration = int(info.get("duration") or 0)
-        if duration > _MAX_DURATION_SECONDS:
-            from tunedrop.app.utils.time_utils import format_seconds
-            raise RuntimeError(f"Video is too long ({format_seconds(duration)}). Maximum supported duration is {format_seconds(_MAX_DURATION_SECONDS)}.")
-
         # Check cache first
         cache_key, cache_key_type = generate_cache_key(task.request.source, task.request.input_type, info)
         if cache_key:
@@ -278,7 +271,7 @@ class MusicDownloadManager:
         thumb_path: Path | None = None
         try:
             await task.update(build_progress_message(DownloadPhase.SEARCHING), parse_mode=ParseMode.HTML)
-            audio_file, _, _ = await self._run_ytdlp_download(task, task.request.source, work_dir, timeout=max(duration * 2, 600))
+            audio_file, _, _ = await self._run_ytdlp_download(task, task.request.source, work_dir, timeout=max(duration * 3 + 300, 600))
             thumb_url = info.get("thumbnail")
             if thumb_url:
                 thumb_path = await extract_thumbnail_from_url(thumb_url, work_dir / "thumb.jpg")
@@ -369,12 +362,6 @@ class MusicDownloadManager:
             yt_id = entry.get("id")
             if not yt_id:
                 return None
-
-            # Reject videos that are too long
-            duration = int(entry.get("duration") or 0)
-            if duration > _MAX_DURATION_SECONDS:
-                from tunedrop.app.utils.time_utils import format_seconds
-                raise RuntimeError(f"Video is too long ({format_seconds(duration)}). Maximum supported duration is {format_seconds(_MAX_DURATION_SECONDS)}.")
 
             cache_key, _ = generate_cache_key(task.request.source, task.request.input_type, entry)
             if cache_key:
