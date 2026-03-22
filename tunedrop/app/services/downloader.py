@@ -271,6 +271,7 @@ class MusicDownloadManager:
         thumb_path: Path | None = None
         try:
             await task.update(build_progress_message(DownloadPhase.SEARCHING), parse_mode=ParseMode.HTML)
+            duration = int(info.get("duration") or 0)
             audio_file, _, _ = await self._run_ytdlp_download(task, task.request.source, work_dir, timeout=max(duration * 3 + 300, 600))
             thumb_url = info.get("thumbnail")
             if thumb_url:
