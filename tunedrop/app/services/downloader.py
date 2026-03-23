@@ -50,10 +50,10 @@ from tunedrop.app.utils.validators import InputType
 
 logger = logging.getLogger(__name__)
 
-_TELEGRAM_BOT_UPLOAD_LIMIT = 50 * 1024 * 1024  # 50MB
+_TELEGRAM_BOT_UPLOAD_LIMIT = 2 * 1024 * 1024 * 1024  # 2GB
 _PROGRESS_UPDATE_INTERVAL = 4.0  # seconds between Telegram message edits
 _CONVERSION_TIMEOUT_BASE = 240  # minimum seconds for FFmpeg audio conversion
-_MAX_AUDIO_DURATION = 20 * 60  # 20 minutes — exceeds 50MB at 320kbps
+_MAX_AUDIO_DURATION = 3 * 3600  # 3 hours
 _RESOLVE_FAILED = object()  # Sentinel: search resolution failed, not a cache hit
 _cached_bot_username: str | None = None
 
@@ -482,7 +482,7 @@ class MusicDownloadManager:
         )
 
     async def _deliver_audio(self, app: Client, message: Message, audio_file: Path, metadata: Any, task: DownloadTask) -> None:
-        """Send audio directly if under 50MB, otherwise upload to channel and send link."""
+        """Send audio directly if under 2GB, otherwise upload to channel and send link."""
         file_size = audio_file.stat().st_size
         if file_size <= _TELEGRAM_BOT_UPLOAD_LIMIT:
             username = await self._get_bot_username(app)
