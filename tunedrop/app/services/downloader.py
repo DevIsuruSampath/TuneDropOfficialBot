@@ -617,14 +617,17 @@ class MusicDownloadManager:
     def _map_subprocess_progress(self, name: str, text: str) -> str | None:
         lowered = text.lower()
         if name != "spotdl":
-            if "downloading" in lowered or "converting" in lowered or "processing" in lowered:
+            if "download" in lowered or "converting" in lowered or "processing" in lowered:
                 return build_progress_message(DownloadPhase.DOWNLOADING)
             return None
 
         if "processing query" in lowered:
             return build_progress_message(DownloadPhase.SEARCHING)
-        if "downloading" in lowered:
-            return build_progress_message(DownloadPhase.DOWNLOADING)
+        if "download" in lowered:
+            # Extract song name from spotdl "Downloaded" lines for better progress
+            match = re.search(r'Downloaded\s+"(.+?)"', text)
+            detail = f"Track: {match.group(1)}" if match else None
+            return build_progress_message(DownloadPhase.DOWNLOADING, details=detail)
         if "converting" in lowered:
             return build_progress_message(DownloadPhase.CONVERTING)
         if "skipping" in lowered:
