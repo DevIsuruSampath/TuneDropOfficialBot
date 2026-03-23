@@ -70,6 +70,7 @@ class SongCache:
         duration: int,
         file_size: int,
         thumbnail_file_id: str | None = None,
+        download_link: str | None = None,
     ) -> None:
         """Store a song's metadata and Telegram file reference in the cache."""
         if not cache_key or not settings.song_cache_channel_id:
@@ -86,6 +87,7 @@ class SongCache:
                 "file_size": file_size,
                 "telegram_file_id": file_id,
                 "thumbnail_file_id": thumbnail_file_id,
+                "download_link": download_link,
                 "created_at": datetime.now(timezone.utc),
             }},
             upsert=True,

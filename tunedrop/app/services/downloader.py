@@ -187,12 +187,24 @@ class MusicDownloadManager:
             file_size = audio_file.stat().st_size
 
             # Cache the downloaded song
+            download_url: str | None = None
             cache_key, cache_key_type = generate_cache_key(task.request.source, task.request.input_type, yt_info)
             if cache_key:
                 try:
                     await task.update(build_progress_message(DownloadPhase.UPLOADING), parse_mode=ParseMode.HTML)
                     audio_file_id, thumb_file_id = await song_cache.upload_to_cache_channel(
                         app, audio_file, metadata.title, metadata.artist, metadata.duration, metadata.thumbnail_path,
+                    )
+                    file_name = f"{metadata.artist} - {metadata.title}.mp3"
+                    download_url = await link_store.create_link(
+                        user_id=task.user_id,
+                        payload={
+                            "chat_id": settings.song_cache_channel_id,
+                            "message_id": 0,
+                            "file_id": audio_file_id,
+                            "file_name": file_name,
+                            "file_size": file_size,
+                        },
                     )
                     await song_cache.cache_song(
                         cache_key=cache_key,
@@ -203,11 +215,12 @@ class MusicDownloadManager:
                         duration=metadata.duration,
                         file_size=file_size,
                         thumbnail_file_id=thumb_file_id,
+                        download_link=download_url,
                     )
                 except Exception:
                     logger.exception("Failed to cache song, sending directly to user")
 
-            await self._deliver_audio(app, message, audio_file, metadata, task)
+            await self._deliver_audio(app, message, audio_file, metadata, task, download_url=download_url)
             await task.update(build_completion_message(), parse_mode=ParseMode.HTML)
         finally:
             await cleanup_paths([work_dir])
@@ -298,11 +311,23 @@ class MusicDownloadManager:
             file_size = audio_file.stat().st_size
 
             # Cache the downloaded song
+            download_url: str | None = None
             if cache_key:
                 try:
                     await task.update(build_progress_message(DownloadPhase.UPLOADING), parse_mode=ParseMode.HTML)
                     audio_file_id, thumb_file_id = await song_cache.upload_to_cache_channel(
                         app, audio_file, metadata.title, metadata.artist, metadata.duration, thumb_path,
+                    )
+                    file_name = f"{metadata.artist} - {metadata.title}.mp3"
+                    download_url = await link_store.create_link(
+                        user_id=task.user_id,
+                        payload={
+                            "chat_id": settings.song_cache_channel_id,
+                            "message_id": 0,
+                            "file_id": audio_file_id,
+                            "file_name": file_name,
+                            "file_size": file_size,
+                        },
                     )
                     await song_cache.cache_song(
                         cache_key=cache_key,
@@ -313,11 +338,12 @@ class MusicDownloadManager:
                         duration=metadata.duration,
                         file_size=file_size,
                         thumbnail_file_id=thumb_file_id,
+                        download_link=download_url,
                     )
                 except Exception:
                     logger.exception("Failed to cache song, sending directly to user")
 
-            await self._deliver_audio(app, message, audio_file, metadata, task)
+            await self._deliver_audio(app, message, audio_file, metadata, task, download_url=download_url)
             await task.update(build_completion_message(), parse_mode=ParseMode.HTML)
         finally:
             await cleanup_paths([work_dir])
@@ -432,7 +458,8 @@ class MusicDownloadManager:
     async def _send_cached_audio(self, app: Client, message: Message, cached: dict[str, Any]) -> None:
         """Send a cached song to the user using the stored Telegram file_id."""
         username = await self._get_bot_username(app)
-        audio_markup = build_audio_keyboard(username) if username else None
+        download_url = cached.get("download_link")
+        audio_markup = build_audio_keyboard(username, download_url=download_url) if username else None
         caption = build_audio_caption(
             title=cached["title"],
             artist=cached["artist"],
@@ -481,12 +508,12 @@ class MusicDownloadManager:
             parse_mode=ParseMode.HTML,
         )
 
-    async def _deliver_audio(self, app: Client, message: Message, audio_file: Path, metadata: Any, task: DownloadTask) -> None:
+    async def _deliver_audio(self, app: Client, message: Message, audio_file: Path, metadata: Any, task: DownloadTask, download_url: str | None = None) -> None:
         """Send audio directly if under 2GB, otherwise upload to channel and send link."""
         file_size = audio_file.stat().st_size
         if file_size <= _TELEGRAM_BOT_UPLOAD_LIMIT:
             username = await self._get_bot_username(app)
-            audio_markup = build_audio_keyboard(username) if username else None
+            audio_markup = build_audio_keyboard(username, download_url=download_url) if username else None
             await self._send_audio(app, message, audio_file, metadata, reply_markup=audio_markup)
         else:
             await self._send_large_audio(app, message, audio_file, metadata, task)

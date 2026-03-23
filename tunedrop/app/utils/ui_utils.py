@@ -68,15 +68,17 @@ def build_audio_caption(
     )
 
 
-def build_audio_keyboard(bot_username: str) -> InlineKeyboardMarkup:
+def build_audio_keyboard(bot_username: str, download_url: str | None = None) -> InlineKeyboardMarkup:
     bot_link = f"https://t.me/{bot_username}?start=share"
     share_url = f"https://t.me/share/url?url={bot_link}&text=Download%20songs%20instantly%20with%20TuneDrop%20%F0%9F%8E%A7"
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("🎧 Try TuneDrop", url=bot_link),
-            InlineKeyboardButton("📤 Share", url=share_url),
-        ],
+    buttons = []
+    if download_url:
+        buttons.append([InlineKeyboardButton("⬇️ Download", url=download_url)])
+    buttons.append([
+        InlineKeyboardButton("🎧 Try TuneDrop", url=bot_link),
+        InlineKeyboardButton("📤 Share", url=share_url),
     ])
+    return InlineKeyboardMarkup(buttons)
 
 
 def build_playlist_completion(
