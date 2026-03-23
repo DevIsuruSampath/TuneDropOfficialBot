@@ -6,7 +6,12 @@ from tunedrop.app.services.downloader import DownloadRequest, download_manager
 from tunedrop.app.services.progress import task_registry
 from tunedrop.app.utils.decorators import once_per_message
 from tunedrop.app.utils.filters import music_input
-from tunedrop.app.utils.validators import classify_input
+from tunedrop.app.utils.validators import classify_input, looks_like_url
+
+_UNSUPPORTED_MSG = (
+    "Only YouTube, YouTube Music, and Spotify URLs are supported.\n\n"
+    "Use /song <query> to search for music."
+)
 
 
 def register(app: Client) -> None:
@@ -21,3 +26,13 @@ def register(app: Client) -> None:
             input_type=classify_input(raw),
         )
         await task_registry.start_download(client, message, request, download_manager)
+
+    @app.on_message(
+        filters.text
+        & ~filters.command(["start", "help", "song", "myfiles", "cancel"])
+        & ~music_input
+        & filters.create(lambda _, __, m: bool(looks_like_url(m.text or "")))
+    )
+    @once_per_message
+    async def unsupported_url_handler(client: Client, message):
+        await message.reply_text(_UNSUPPORTED_MSG)

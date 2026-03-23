@@ -40,6 +40,13 @@ def classify_input(value: str) -> InputType:
     return InputType.UNKNOWN
 
 
+_URL_RE = re.compile(r"https?://\S+")
+
+
 def is_supported_url(value: str) -> bool:
     input_type = classify_input(value)
     return input_type not in {InputType.UNKNOWN, InputType.SEARCH}
+
+
+def looks_like_url(value: str) -> bool:
+    return bool(_URL_RE.search(value.strip()))
