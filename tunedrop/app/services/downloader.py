@@ -626,14 +626,40 @@ class MusicDownloadManager:
         return None
 
 
+    async def _validate_audio_file(self, file_path: Path) -> None:
+        """Check that a downloaded file is a valid audio file using ffprobe."""
+        proc = await asyncio.create_subprocess_exec(
+            "ffprobe", "-v", "error",
+            "-select_streams", "a",
+            "-show_entries", "stream=codec_type,duration",
+            "-of", "csv=p=0",
+            str(file_path),
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise RuntimeError(f"ffprobe timed out — downloaded file may be corrupted")
+        if proc.returncode != 0 or b"audio" not in stdout:
+            size_kb = file_path.stat().st_size / 1024 if file_path.exists() else 0
+            raise RuntimeError(f"Downloaded file is not valid audio ({size_kb:.0f} KB)")
+
     async def _convert_to_mp3(self, input_path: Path, task: DownloadTask) -> Path:
         """Convert an audio file to MP3 using FFmpeg as a subprocess with a timeout."""
+        await self._validate_audio_file(input_path)
         output_path = input_path.with_suffix(".mp3")
         text = build_progress_message(DownloadPhase.CONVERTING, details="Converting to MP3...")
         await task.update(text, parse_mode=ParseMode.HTML)
         proc = await asyncio.create_subprocess_exec(
-            "ffmpeg", "-y", "-i", str(input_path),
+            "ffmpeg", "-nostdin",
+            "-analyzeduration", "10M", "-probesize", "10M",
+            "-i", str(input_path),
             "-vn", "-codec:a", "libmp3lame", "-b:a", "320k",
+            "-movflags", "+faststart",
             str(output_path),
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
