@@ -520,7 +520,8 @@ class MusicDownloadManager:
         return await self._run_subprocess(task, cmd, "spotdl")
 
     _FIRST_OUTPUT_TIMEOUT: int = 60
-    _STALL_TIMEOUT: int = 45
+    _STALL_TIMEOUT: int = 90
+    _POSTPROCESS_STALL_TIMEOUT: int = 180
 
     async def _run_subprocess(self, task: DownloadTask, cmd: list[str], name: str) -> SubprocessResult:
         logger.info("Running %s command: %s", name, shlex.join(cmd))
@@ -628,13 +629,16 @@ class MusicDownloadManager:
         loop = asyncio.get_running_loop()
         last_progress_time = [0.0]  # mutable container for throttle
         last_hook_time = [time.monotonic()]  # for stall detection
+        last_status = ["downloading"]  # track phase for different stall timeouts
 
         def progress_hook(payload: dict[str, Any]) -> None:
             now = time.monotonic()
             last_hook_time[0] = now
+            status = payload.get("status")
+            if status:
+                last_status[0] = status
             if now - last_progress_time[0] < _PROGRESS_UPDATE_INTERVAL:
                 return
-            status = payload.get("status")
             if status == "downloading":
                 total = payload.get("total_bytes") or payload.get("total_bytes_estimate") or 0
                 downloaded = payload.get("downloaded_bytes") or 0
@@ -698,9 +702,13 @@ class MusicDownloadManager:
                 except asyncio.TimeoutError:
                     if download_task.done():
                         return download_task.result()
-                    if time.monotonic() - last_hook_time[0] > self._STALL_TIMEOUT:
+                    elapsed = time.monotonic() - last_hook_time[0]
+                    # Use longer timeout during post-processing (FFmpeg conversion)
+                    # since progress hooks fire less frequently in that phase
+                    timeout = self._POSTPROCESS_STALL_TIMEOUT if last_status[0] in ("processing", "finished") else self._STALL_TIMEOUT
+                    if elapsed > timeout:
                         raise RuntimeError(
-                            f"Download stalled: no progress for {self._STALL_TIMEOUT}s"
+                            f"Download stalled: no progress for {int(elapsed)}s"
                         )
         finally:
             if not download_task.done():
