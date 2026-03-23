@@ -51,6 +51,8 @@ logger = logging.getLogger(__name__)
 
 _TELEGRAM_BOT_UPLOAD_LIMIT = 50 * 1024 * 1024  # 50MB
 _PROGRESS_UPDATE_INTERVAL = 4.0  # seconds between Telegram message edits
+_RESOLVE_FAILED = object()  # Sentinel: search resolution failed, not a cache hit
+_cached_bot_username: str | None = None
 
 
 @dataclass(slots=True)
@@ -151,6 +153,8 @@ class MusicDownloadManager:
                     yt_url = await self._resolve_search_and_check_cache(app, message, task)
                     if yt_url is None:
                         return  # Cache hit — song already sent
+                    if yt_url is _RESOLVE_FAILED:
+                        yt_url = None  # Resolution failed, fall through to raw ytsearch
 
                 if not yt_url:
                     yt_url = f"ytsearch1:{task.request.source}"
@@ -248,6 +252,8 @@ class MusicDownloadManager:
 
     async def _handle_youtube(self, app: Client, message: Message, task: DownloadTask) -> None:
         info = await extract_info(task.request.source)
+        if info is None:
+            raise RuntimeError("Could not retrieve video information. The URL may be invalid or the video is unavailable.")
         entries = info.get("entries") or []
         if entries and task.request.input_type in {InputType.YOUTUBE_PLAYLIST, InputType.YOUTUBE_MUSIC_PLAYLIST}:
             await self._download_youtube_playlist(app, message, task, info)
@@ -353,17 +359,20 @@ class MusicDownloadManager:
 
         Returns the YouTube URL if not cached (caller should download).
         Returns None if cache hit (song already sent to user).
-        Raises nothing — falls back to ytsearch on failure.
+        Raises RuntimeError if resolution fails entirely.
         """
+        sentinel = object()
         try:
             search_info = await extract_info(f"ytsearch1:{task.request.source}")
+            if search_info is None:
+                return sentinel  # type: ignore[return-value]
             entries = search_info.get("entries") or []
             if not entries:
-                return None
+                return sentinel  # type: ignore[return-value]
             entry = entries[0]
             yt_id = entry.get("id")
             if not yt_id:
-                return None
+                return sentinel  # type: ignore[return-value]
 
             cache_key, _ = generate_cache_key(task.request.source, task.request.input_type, entry)
             if cache_key:
@@ -380,7 +389,7 @@ class MusicDownloadManager:
             return f"https://www.youtube.com/watch?v={yt_id}"
         except Exception:
             logger.exception("Search resolution failed, falling back to ytsearch download")
-            return None
+            return sentinel  # type: ignore[return-value]
 
     async def _send_audio(self, app: Client, message: Message, audio_file: Path, metadata: Any, reply_markup: InlineKeyboardMarkup | None = None) -> None:
         caption = build_audio_caption(
@@ -401,10 +410,23 @@ class MusicDownloadManager:
             thumb=str(metadata.thumbnail_path) if metadata.thumbnail_path and metadata.thumbnail_path.exists() else None,
         )
 
+    async def _get_bot_username(self, app: Client) -> str | None:
+        global _cached_bot_username
+        if _cached_bot_username:
+            return _cached_bot_username
+        try:
+            me = await app.get_me()
+            if me and me.username:
+                _cached_bot_username = me.username
+                return _cached_bot_username
+        except Exception:
+            pass
+        return None
+
     async def _send_cached_audio(self, app: Client, message: Message, cached: dict[str, Any]) -> None:
         """Send a cached song to the user using the stored Telegram file_id."""
-        me = await app.get_me()
-        audio_markup = build_audio_keyboard(me.username) if me and me.username else None
+        username = await self._get_bot_username(app)
+        audio_markup = build_audio_keyboard(username) if username else None
         caption = build_audio_caption(
             title=cached["title"],
             artist=cached["artist"],
@@ -457,8 +479,8 @@ class MusicDownloadManager:
         """Send audio directly if under 50MB, otherwise upload to channel and send link."""
         file_size = audio_file.stat().st_size
         if file_size <= _TELEGRAM_BOT_UPLOAD_LIMIT:
-            me = await app.get_me()
-            audio_markup = build_audio_keyboard(me.username) if me and me.username else None
+            username = await self._get_bot_username(app)
+            audio_markup = build_audio_keyboard(username) if username else None
             await self._send_audio(app, message, audio_file, metadata, reply_markup=audio_markup)
         else:
             await self._send_large_audio(app, message, audio_file, metadata, task)
@@ -498,6 +520,7 @@ class MusicDownloadManager:
         return await self._run_subprocess(task, cmd, "spotdl")
 
     _FIRST_OUTPUT_TIMEOUT: int = 60
+    _STALL_TIMEOUT: int = 45
 
     async def _run_subprocess(self, task: DownloadTask, cmd: list[str], name: str) -> SubprocessResult:
         logger.info("Running %s command: %s", name, shlex.join(cmd))
@@ -603,10 +626,12 @@ class MusicDownloadManager:
 
     async def _run_ytdlp_download(self, task: DownloadTask, url: str, out_dir: Path, timeout: float = 600) -> tuple[Path, str | None, dict[str, Any] | None]:
         loop = asyncio.get_running_loop()
-        last_progress_time = [0.0]  # mutable container for closure
+        last_progress_time = [0.0]  # mutable container for throttle
+        last_hook_time = [time.monotonic()]  # for stall detection
 
         def progress_hook(payload: dict[str, Any]) -> None:
             now = time.monotonic()
+            last_hook_time[0] = now
             if now - last_progress_time[0] < _PROGRESS_UPDATE_INTERVAL:
                 return
             status = payload.get("status")
@@ -617,6 +642,10 @@ class MusicDownloadManager:
                 eta = payload.get("eta")  # seconds remaining from yt-dlp
                 text = build_progress_message(DownloadPhase.DOWNLOADING, percentage=percent, eta=eta)
                 last_progress_time[0] = now
+                asyncio.run_coroutine_threadsafe(task.update(text, parse_mode=ParseMode.HTML), loop)
+            elif status == "processing":
+                last_progress_time[0] = now
+                text = build_progress_message(DownloadPhase.CONVERTING, details="Converting to MP3...")
                 asyncio.run_coroutine_threadsafe(task.update(text, parse_mode=ParseMode.HTML), loop)
             elif status == "finished":
                 last_progress_time[0] = now
@@ -659,7 +688,23 @@ class MusicDownloadManager:
                 raise RuntimeError("Download failed.")
             return file_path, thumb_url, entry
 
-        return await asyncio.wait_for(asyncio.to_thread(_download), timeout=timeout)
+        download_task = asyncio.create_task(asyncio.to_thread(_download))
+        try:
+            while True:
+                try:
+                    return await asyncio.wait_for(
+                        asyncio.shield(download_task), timeout=10,
+                    )
+                except asyncio.TimeoutError:
+                    if download_task.done():
+                        return download_task.result()
+                    if time.monotonic() - last_hook_time[0] > self._STALL_TIMEOUT:
+                        raise RuntimeError(
+                            f"Download stalled: no progress for {self._STALL_TIMEOUT}s"
+                        )
+        finally:
+            if not download_task.done():
+                download_task.cancel()
 
     async def _run_ytdlp_playlist(self, task: DownloadTask, url: str, out_dir: Path) -> None:
         loop = asyncio.get_running_loop()

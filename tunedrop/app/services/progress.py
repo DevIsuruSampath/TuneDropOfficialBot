@@ -37,22 +37,29 @@ class DownloadTask:
     last_text: str = ""
     _reply_markup: InlineKeyboardMarkup | None = field(default=None, repr=False)
     _last_markup: InlineKeyboardMarkup | None = field(default=None, repr=False)
+    _pending: tuple[str, str | None] | None = field(default=None, repr=False)
     _updating: bool = field(default=False, repr=False)
 
     async def update(self, text: str, parse_mode: str | None = None) -> None:
-        if self._updating:
-            return
         if text == self.last_text and self._reply_markup is self._last_markup:
             return
+        self._pending = (text, parse_mode)
+        if self._updating:
+            return
         self._updating = True
-        self.last_text = text
-        self._last_markup = self._reply_markup
         try:
-            await self.status_message.edit_text(
-                text, disable_web_page_preview=True, reply_markup=self._reply_markup, parse_mode=parse_mode,
-            )
-        except Exception:
-            logger.debug("Failed to update status message for user %s", self.user_id, exc_info=True)
+            while self._pending is not None:
+                current_text, current_pm = self._pending
+                self._pending = None
+                self.last_text = current_text
+                self._last_markup = self._reply_markup
+                try:
+                    await self.status_message.edit_text(
+                        current_text, disable_web_page_preview=True,
+                        reply_markup=self._reply_markup, parse_mode=current_pm,
+                    )
+                except Exception:
+                    logger.debug("Failed to update status message for user %s", self.user_id, exc_info=True)
         finally:
             self._updating = False
 
