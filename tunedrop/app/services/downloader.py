@@ -7,6 +7,7 @@ import logging
 import re
 import shlex
 import shutil
+import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -51,6 +52,7 @@ logger = logging.getLogger(__name__)
 
 _TELEGRAM_BOT_UPLOAD_LIMIT = 50 * 1024 * 1024  # 50MB
 _PROGRESS_UPDATE_INTERVAL = 4.0  # seconds between Telegram message edits
+_CONVERSION_TIMEOUT = 120  # seconds for FFmpeg audio conversion
 _RESOLVE_FAILED = object()  # Sentinel: search resolution failed, not a cache hit
 _cached_bot_username: str | None = None
 
@@ -521,7 +523,6 @@ class MusicDownloadManager:
 
     _FIRST_OUTPUT_TIMEOUT: int = 60
     _STALL_TIMEOUT: int = 90
-    _POSTPROCESS_STALL_TIMEOUT: int = 180
 
     async def _run_subprocess(self, task: DownloadTask, cmd: list[str], name: str) -> SubprocessResult:
         logger.info("Running %s command: %s", name, shlex.join(cmd))
@@ -625,20 +626,42 @@ class MusicDownloadManager:
         return None
 
 
+    async def _convert_to_mp3(self, input_path: Path, task: DownloadTask) -> Path:
+        """Convert an audio file to MP3 using FFmpeg as a subprocess with a timeout."""
+        output_path = input_path.with_suffix(".mp3")
+        text = build_progress_message(DownloadPhase.CONVERTING, details="Converting to MP3...")
+        await task.update(text, parse_mode=ParseMode.HTML)
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-y", "-i", str(input_path),
+            "-vn", "-codec:a", "libmp3lame", "-b:a", "320k",
+            str(output_path),
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=_CONVERSION_TIMEOUT)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise RuntimeError(f"FFmpeg conversion timed out after {_CONVERSION_TIMEOUT}s")
+        if proc.returncode != 0:
+            stderr = await proc.stderr.read()
+            raise RuntimeError(f"FFmpeg conversion failed (exit {proc.returncode}): {stderr.decode(errors='replace')[:200]}")
+        input_path.unlink(missing_ok=True)
+        return output_path
+
     async def _run_ytdlp_download(self, task: DownloadTask, url: str, out_dir: Path, timeout: float = 600) -> tuple[Path, str | None, dict[str, Any] | None]:
         loop = asyncio.get_running_loop()
         last_progress_time = [0.0]  # mutable container for throttle
         last_hook_time = [time.monotonic()]  # for stall detection
-        last_status = ["downloading"]  # track phase for different stall timeouts
 
         def progress_hook(payload: dict[str, Any]) -> None:
             now = time.monotonic()
             last_hook_time[0] = now
-            status = payload.get("status")
-            if status:
-                last_status[0] = status
             if now - last_progress_time[0] < _PROGRESS_UPDATE_INTERVAL:
                 return
+            status = payload.get("status")
             if status == "downloading":
                 total = payload.get("total_bytes") or payload.get("total_bytes_estimate") or 0
                 downloaded = payload.get("downloaded_bytes") or 0
@@ -647,32 +670,16 @@ class MusicDownloadManager:
                 text = build_progress_message(DownloadPhase.DOWNLOADING, percentage=percent, eta=eta)
                 last_progress_time[0] = now
                 asyncio.run_coroutine_threadsafe(task.update(text, parse_mode=ParseMode.HTML), loop)
-            elif status == "processing":
-                last_progress_time[0] = now
-                text = build_progress_message(DownloadPhase.CONVERTING, details="Converting to MP3...")
-                asyncio.run_coroutine_threadsafe(task.update(text, parse_mode=ParseMode.HTML), loop)
-            elif status == "finished":
-                last_progress_time[0] = now
-                text = build_progress_message(DownloadPhase.CONVERTING)
-                asyncio.run_coroutine_threadsafe(task.update(text, parse_mode=ParseMode.HTML), loop)
 
         output_template = str(out_dir / "%(title)s.%(ext)s")
         ydl_opts = {
             **_base_ytdlp_opts(),
             "format": "bestaudio",
-            "extractaudio": True,
             "outtmpl": output_template,
             "noplaylist": True,
             "windowsfilenames": True,
             "restrictfilenames": True,
             "progress_hooks": [progress_hook],
-            "postprocessors": [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "320",
-                }
-            ],
         }
 
         def _download() -> tuple[Path, str | None, dict[str, Any] | None]:
@@ -687,32 +694,42 @@ class MusicDownloadManager:
                     entry = info
             if entry:
                 thumb_url = entry.get("thumbnail")
-            file_path = find_first_file(out_dir, suffix=".mp3")
+            # Find the downloaded audio file (webm, m4a, opus, etc.)
+            audio_exts = (".webm", ".m4a", ".opus", ".mp3", ".wav", ".flac", ".aac", ".ogg")
+            file_path = None
+            for f in sorted(out_dir.iterdir()):
+                if f.is_file() and f.suffix.lower() in audio_exts:
+                    file_path = f
+                    break
             if not file_path:
-                raise RuntimeError("Download failed.")
+                raise RuntimeError("Download failed: no output file.")
             return file_path, thumb_url, entry
 
         download_task = asyncio.create_task(asyncio.to_thread(_download))
         try:
             while True:
                 try:
-                    return await asyncio.wait_for(
+                    raw_path, thumb_url, entry = await asyncio.wait_for(
                         asyncio.shield(download_task), timeout=10,
                     )
+                    break
                 except asyncio.TimeoutError:
                     if download_task.done():
-                        return download_task.result()
-                    elapsed = time.monotonic() - last_hook_time[0]
-                    # Use longer timeout during post-processing (FFmpeg conversion)
-                    # since progress hooks fire less frequently in that phase
-                    timeout = self._POSTPROCESS_STALL_TIMEOUT if last_status[0] in ("processing", "finished") else self._STALL_TIMEOUT
-                    if elapsed > timeout:
+                        raw_path, thumb_url, entry = download_task.result()
+                        break
+                    if time.monotonic() - last_hook_time[0] > self._STALL_TIMEOUT:
                         raise RuntimeError(
-                            f"Download stalled: no progress for {int(elapsed)}s"
+                            f"Download stalled: no progress for {self._STALL_TIMEOUT}s"
                         )
         finally:
             if not download_task.done():
                 download_task.cancel()
+
+        # Convert to MP3 outside of yt-dlp so we can control the timeout
+        if raw_path.suffix.lower() != ".mp3":
+            raw_path = await self._convert_to_mp3(raw_path, task)
+
+        return raw_path, thumb_url, entry
 
     async def _run_ytdlp_playlist(self, task: DownloadTask, url: str, out_dir: Path) -> None:
         loop = asyncio.get_running_loop()
@@ -744,32 +761,14 @@ class MusicDownloadManager:
                     ),
                     loop,
                 )
-            elif status == "processing":
-                filename = Path(str(payload.get("filename") or "")).stem
-                last_progress_time[0] = now
-                asyncio.run_coroutine_threadsafe(
-                    task.update(
-                        build_progress_message(DownloadPhase.CONVERTING, details=filename),
-                        parse_mode=ParseMode.HTML,
-                    ),
-                    loop,
-                )
 
         ydl_opts = {
             **_base_ytdlp_opts(),
             "format": "bestaudio",
-            "extractaudio": True,
             "outtmpl": str(out_dir / "%(playlist_index)s - %(title)s.%(ext)s"),
             "windowsfilenames": True,
             "restrictfilenames": True,
             "progress_hooks": [progress_hook],
-            "postprocessors": [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "320",
-                }
-            ],
             "playlistend": settings.max_playlist_items,
         }
 
@@ -778,6 +777,11 @@ class MusicDownloadManager:
                 ydl.download([url])
 
         await asyncio.wait_for(asyncio.to_thread(_download), timeout=1800)
+
+        # Convert any non-MP3 files to MP3
+        for raw_file in list(out_dir.iterdir()):
+            if raw_file.is_file() and raw_file.suffix.lower() != ".mp3":
+                await self._convert_to_mp3(raw_file, task)
 
 
 download_manager = MusicDownloadManager()
