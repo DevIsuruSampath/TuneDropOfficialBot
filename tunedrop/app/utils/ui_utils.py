@@ -33,13 +33,19 @@ def build_progress_message(
     if phase == DownloadPhase.UPLOADING:
         return "<b>📤 Uploading...</b>"
 
-    # DOWNLOADING and CONVERTING both show as "Processing"
-    lines = ["<b>⚙️ Processing audio...</b>"]
-    if percentage is not None:
-        pct_str = f"{percentage:.0f}%"
-        if eta is not None and eta > 0:
-            pct_str += f"  ·  {format_seconds(int(eta))} left"
-        lines.append(f"<code>{pct_str}</code>")
+    if phase == DownloadPhase.DOWNLOADING:
+        lines = ["<b>⚙️ Downloading audio...</b>"]
+        if percentage is not None:
+            pct_str = f"{percentage:.0f}%"
+            if eta is not None and eta > 0:
+                pct_str += f"  ·  {format_seconds(int(eta))} left"
+            lines.append(f"<code>{pct_str}</code>")
+        if details:
+            lines.append(f"<i>{escape_html(details)}</i>")
+        return "\n".join(lines)
+
+    # CONVERTING phase
+    lines = ["<b>🔄 Converting audio...</b>"]
     if details:
         lines.append(f"<i>{escape_html(details)}</i>")
     return "\n".join(lines)

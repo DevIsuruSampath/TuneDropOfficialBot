@@ -15,6 +15,7 @@ Handler = Callable[..., Awaitable[Any]]
 
 _seen_keys: set[int] = set()
 _seen_max = 500
+_evict_batch = 100
 
 
 def _msg_key(message: Message) -> int:
@@ -31,7 +32,10 @@ def once_per_message(handler: Handler) -> Handler:
             return None
         _seen_keys.add(key)
         if len(_seen_keys) > _seen_max:
-            _seen_keys.clear()
+            # Evict oldest batch instead of clearing all keys
+            evict = sorted(_seen_keys)[:_evict_batch]
+            for k in evict:
+                _seen_keys.discard(k)
         return await handler(_, message, *args, **kwargs)
 
     return wrapper  # type: ignore[return-value]

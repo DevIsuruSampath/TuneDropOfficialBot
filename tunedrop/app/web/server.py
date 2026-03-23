@@ -101,7 +101,12 @@ async def resolve_telegram_file_url(file_id: str) -> str | None:
     payload = response.json()
     if not payload.get("ok"):
         return None
-    file_path = payload["result"]["file_path"]
+    result = payload.get("result")
+    if not result or not isinstance(result, dict):
+        return None
+    file_path = result.get("file_path")
+    if not file_path:
+        return None
     return f"https://api.telegram.org/file/bot{settings.bot_token}/{file_path}"
 
 

@@ -35,16 +35,20 @@ def _acquire_pid_lock() -> int:
     automatically released when the descriptor is closed (on process exit).
     """
     lock_path = settings.data_dir / "bot.pid"
-    fd = os.open(str(lock_path), os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o644)
+    fd = os.open(str(lock_path), os.O_CREAT | os.O_WRONLY, 0o644)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
         os.close(fd)
-        existing = lock_path.read_text().strip() if lock_path.exists() else "?"
+        try:
+            existing = lock_path.read_text().strip()
+        except OSError:
+            existing = "?"
         raise RuntimeError(
             f"Another bot instance is already running (PID {existing}). "
             f"Stop it before starting a new one."
         )
+    os.ftruncate(fd, 0)
     os.write(fd, str(os.getpid()).encode())
     return fd
 
