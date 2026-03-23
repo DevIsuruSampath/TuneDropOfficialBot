@@ -7,8 +7,6 @@ from enum import StrEnum
 class InputType(StrEnum):
     SPOTIFY_TRACK = "spotify_track"
     SPOTIFY_PLAYLIST = "spotify_playlist"
-    YOUTUBE_TRACK = "youtube_track"
-    YOUTUBE_PLAYLIST = "youtube_playlist"
     YOUTUBE_MUSIC_TRACK = "youtube_music_track"
     YOUTUBE_MUSIC_PLAYLIST = "youtube_music_playlist"
     SEARCH = "search"
@@ -21,7 +19,6 @@ SPOTIFY_TRACK_RE = re.compile(
 SPOTIFY_PLAYLIST_RE = re.compile(
     r"^https?://open\.spotify\.com/(?:intl-[^/]+/)?playlist/[A-Za-z0-9]+(?:\?.*)?$"
 )
-YOUTUBE_RE = re.compile(r"^https?://(?:www\.)?(?:youtube\.com|youtu\.be)/")
 YOUTUBE_MUSIC_RE = re.compile(r"^https?://music\.youtube\.com/")
 
 
@@ -33,8 +30,6 @@ def classify_input(value: str) -> InputType:
         return InputType.SPOTIFY_PLAYLIST
     if YOUTUBE_MUSIC_RE.match(text):
         return InputType.YOUTUBE_MUSIC_PLAYLIST if "list=" in text else InputType.YOUTUBE_MUSIC_TRACK
-    if YOUTUBE_RE.match(text):
-        return InputType.YOUTUBE_PLAYLIST if "list=" in text else InputType.YOUTUBE_TRACK
     if text:
         return InputType.SEARCH
     return InputType.UNKNOWN

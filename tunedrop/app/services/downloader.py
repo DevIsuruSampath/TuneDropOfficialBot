@@ -102,7 +102,7 @@ class MusicDownloadManager:
             await self._handle_spotify_or_search(app, message, task)
             return
 
-        if request.input_type in {InputType.YOUTUBE_TRACK, InputType.YOUTUBE_PLAYLIST, InputType.YOUTUBE_MUSIC_TRACK, InputType.YOUTUBE_MUSIC_PLAYLIST}:
+        if request.input_type in {InputType.YOUTUBE_MUSIC_TRACK, InputType.YOUTUBE_MUSIC_PLAYLIST}:
             await self._handle_youtube(app, message, task)
             return
 
@@ -257,7 +257,7 @@ class MusicDownloadManager:
         if info is None:
             raise RuntimeError("Could not retrieve video information. The URL may be invalid or the video is unavailable.")
         entries = info.get("entries") or []
-        if entries and task.request.input_type in {InputType.YOUTUBE_PLAYLIST, InputType.YOUTUBE_MUSIC_PLAYLIST}:
+        if entries and task.request.input_type == InputType.YOUTUBE_MUSIC_PLAYLIST:
             await self._download_youtube_playlist(app, message, task, info)
         else:
             await self._download_youtube_track(app, message, task, info)

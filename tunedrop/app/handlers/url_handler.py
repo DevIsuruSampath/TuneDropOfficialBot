@@ -9,7 +9,7 @@ from tunedrop.app.utils.filters import music_input
 from tunedrop.app.utils.validators import classify_input, looks_like_url
 
 _UNSUPPORTED_MSG = (
-    "Only YouTube, YouTube Music, and Spotify URLs are supported.\n\n"
+    "Only YouTube Music and Spotify URLs are supported.\n\n"
     "Use /song <query> to search for music."
 )
 

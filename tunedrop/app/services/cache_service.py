@@ -34,7 +34,7 @@ def generate_cache_key(source: str, input_type: InputType, yt_info: dict[str, An
             return f"spotify:track:{match.group(1)}", "spotify"
         return None, None
 
-    if input_type in (InputType.YOUTUBE_TRACK, InputType.YOUTUBE_MUSIC_TRACK):
+    if input_type == InputType.YOUTUBE_MUSIC_TRACK:
         match = _YOUTUBE_ID_RE.search(source)
         if match:
             return f"youtube:{match.group(1)}", "youtube"
