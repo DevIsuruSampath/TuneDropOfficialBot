@@ -33,7 +33,14 @@ async def init_database():
         if _database is not None:
             return _database
 
-        client = AsyncMongoClient(settings.mongodb_uri)
+        client = AsyncMongoClient(
+            settings.mongodb_uri,
+            maxIdleTimeMS=45000,
+            connectTimeoutMS=10000,
+            serverSelectionTimeoutMS=10000,
+            retryWrites=True,
+            retryReads=True,
+        )
         database = client[settings.mongodb_database]
         await database.command({"ping": 1})
 
