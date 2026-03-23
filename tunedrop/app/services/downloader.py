@@ -566,6 +566,7 @@ class MusicDownloadManager:
         recent_lines: deque[str] = deque(maxlen=50)
         error_lines: deque[str] = deque(maxlen=20)
         has_output = False
+        spotdl_state: dict[str, int] = {"total": 0, "done": 0} if name == "spotdl" else {}
         try:
             while True:
                 if task.cancelled():
@@ -596,7 +597,7 @@ class MusicDownloadManager:
                         error_lines.append(text)
                     logger.info("%s: %s", name, text)
                     if not is_error:
-                        progress_text = self._map_subprocess_progress(name, text)
+                        progress_text = self._map_subprocess_progress(name, text, spotdl_state)
                         if progress_text:
                             await task.update(progress_text[:4000], parse_mode=ParseMode.HTML)
             code = await process.wait()
@@ -614,7 +615,7 @@ class MusicDownloadManager:
                 process.kill()
             await process.wait()
 
-    def _map_subprocess_progress(self, name: str, text: str) -> str | None:
+    def _map_subprocess_progress(self, name: str, text: str, spotdl_state: dict[str, int] | None = None) -> str | None:
         lowered = text.lower()
         if name != "spotdl":
             if "download" in lowered or "converting" in lowered or "processing" in lowered:
@@ -623,11 +624,31 @@ class MusicDownloadManager:
 
         if "processing query" in lowered:
             return build_progress_message(DownloadPhase.SEARCHING)
+
+        # Track total song count from "Found X songs" line
+        if spotdl_state is not None:
+            total_match = re.search(r"found\s+(\d+)\s+song", lowered)
+            if total_match:
+                spotdl_state["total"] = int(total_match.group(1))
+
         if "download" in lowered:
-            # Extract song name from spotdl "Downloaded" lines for better progress
+            # Extract song name from spotdl "Downloaded" lines
             match = re.search(r'Downloaded\s+"(.+?)"', text)
-            detail = f"Track: {match.group(1)}" if match else None
-            return build_progress_message(DownloadPhase.DOWNLOADING, details=detail)
+            track = match.group(1) if match else None
+            if spotdl_state is not None:
+                spotdl_state["done"] += 1
+                done = spotdl_state["done"]
+                total = spotdl_state["total"]
+                if total > 0:
+                    detail = f"{done}/{total}"
+                    if track:
+                        detail += f" · {track}"
+                    return build_progress_message(DownloadPhase.DOWNLOADING, details=detail)
+                if track:
+                    return build_progress_message(DownloadPhase.DOWNLOADING, details=f"Track: {track}")
+            elif track:
+                return build_progress_message(DownloadPhase.DOWNLOADING, details=f"Track: {track}")
+            return build_progress_message(DownloadPhase.DOWNLOADING)
         if "converting" in lowered:
             return build_progress_message(DownloadPhase.CONVERTING)
         if "skipping" in lowered:
