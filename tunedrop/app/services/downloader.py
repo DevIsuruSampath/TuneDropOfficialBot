@@ -53,6 +53,7 @@ logger = logging.getLogger(__name__)
 _TELEGRAM_BOT_UPLOAD_LIMIT = 50 * 1024 * 1024  # 50MB
 _PROGRESS_UPDATE_INTERVAL = 4.0  # seconds between Telegram message edits
 _CONVERSION_TIMEOUT_BASE = 240  # minimum seconds for FFmpeg audio conversion
+_MAX_AUDIO_DURATION = 20 * 60  # 20 minutes — exceeds 50MB at 320kbps
 _RESOLVE_FAILED = object()  # Sentinel: search resolution failed, not a cache hit
 _cached_bot_username: str | None = None
 
@@ -256,6 +257,9 @@ class MusicDownloadManager:
         info = await extract_info(task.request.source)
         if info is None:
             raise RuntimeError("Could not retrieve video information. The URL may be invalid or the video is unavailable.")
+        duration = int(info.get("duration") or 0)
+        if duration > _MAX_AUDIO_DURATION:
+            raise RuntimeError(f"Audio is too long ({duration // 60}m {duration % 60}s). Maximum supported length is {_MAX_AUDIO_DURATION // 60} minutes (Telegram 50MB limit).")
         entries = info.get("entries") or []
         if entries and task.request.input_type == InputType.YOUTUBE_MUSIC_PLAYLIST:
             await self._download_youtube_playlist(app, message, task, info)
