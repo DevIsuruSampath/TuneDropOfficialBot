@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 
 _TELEGRAM_BOT_UPLOAD_LIMIT = 50 * 1024 * 1024  # 50MB
 _PROGRESS_UPDATE_INTERVAL = 4.0  # seconds between Telegram message edits
-_CONVERSION_TIMEOUT_BASE = 120  # minimum seconds for FFmpeg audio conversion
+_CONVERSION_TIMEOUT_BASE = 240  # minimum seconds for FFmpeg audio conversion
 _RESOLVE_FAILED = object()  # Sentinel: search resolution failed, not a cache hit
 _cached_bot_username: str | None = None
 
@@ -660,9 +660,9 @@ class MusicDownloadManager:
     async def _convert_to_mp3(self, input_path: Path, task: DownloadTask, timeout: float | None = None) -> Path:
         """Convert an audio file to MP3 using FFmpeg as a subprocess with a timeout."""
         duration = await self._validate_audio_file(input_path)
-        # Dynamic timeout: scale with audio duration (1x real-time + 60s overhead, minimum 120s)
+        # Dynamic timeout: scale with audio duration (2x real-time + 120s overhead, minimum 240s)
         if timeout is None:
-            timeout = max(int(duration) + 60, _CONVERSION_TIMEOUT_BASE)
+            timeout = max(int(duration) * 2 + 120, _CONVERSION_TIMEOUT_BASE)
         output_path = input_path.with_suffix(".mp3")
         text = build_progress_message(DownloadPhase.CONVERTING, details="Converting to MP3...")
         await task.update(text, parse_mode=ParseMode.HTML)
