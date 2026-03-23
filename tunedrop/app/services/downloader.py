@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 
 _TELEGRAM_BOT_UPLOAD_LIMIT = 50 * 1024 * 1024  # 50MB
 _PROGRESS_UPDATE_INTERVAL = 4.0  # seconds between Telegram message edits
-_CONVERSION_TIMEOUT = 120  # seconds for FFmpeg audio conversion
+_CONVERSION_TIMEOUT_BASE = 120  # minimum seconds for FFmpeg audio conversion
 _RESOLVE_FAILED = object()  # Sentinel: search resolution failed, not a cache hit
 _cached_bot_username: str | None = None
 
@@ -626,8 +626,11 @@ class MusicDownloadManager:
         return None
 
 
-    async def _validate_audio_file(self, file_path: Path) -> None:
-        """Check that a downloaded file is a valid audio file using ffprobe."""
+    async def _validate_audio_file(self, file_path: Path) -> float:
+        """Check that a downloaded file is a valid audio file using ffprobe.
+
+        Returns the audio duration in seconds.
+        """
         proc = await asyncio.create_subprocess_exec(
             "ffprobe", "-v", "error",
             "-select_streams", "a",
@@ -647,10 +650,19 @@ class MusicDownloadManager:
         if proc.returncode != 0 or b"audio" not in stdout:
             size_kb = file_path.stat().st_size / 1024 if file_path.exists() else 0
             raise RuntimeError(f"Downloaded file is not valid audio ({size_kb:.0f} KB)")
+        # Parse duration from the last field of the ffprobe CSV output
+        parts = stdout.strip().split(b",")
+        try:
+            return float(parts[-1]) if len(parts) > 1 else 0.0
+        except (ValueError, IndexError):
+            return 0.0
 
-    async def _convert_to_mp3(self, input_path: Path, task: DownloadTask) -> Path:
+    async def _convert_to_mp3(self, input_path: Path, task: DownloadTask, timeout: float | None = None) -> Path:
         """Convert an audio file to MP3 using FFmpeg as a subprocess with a timeout."""
-        await self._validate_audio_file(input_path)
+        duration = await self._validate_audio_file(input_path)
+        # Dynamic timeout: scale with audio duration (1x real-time + 60s overhead, minimum 120s)
+        if timeout is None:
+            timeout = max(int(duration) + 60, _CONVERSION_TIMEOUT_BASE)
         output_path = input_path.with_suffix(".mp3")
         text = build_progress_message(DownloadPhase.CONVERTING, details="Converting to MP3...")
         await task.update(text, parse_mode=ParseMode.HTML)
@@ -668,11 +680,11 @@ class MusicDownloadManager:
                 stderr=log_file,
             )
             try:
-                await asyncio.wait_for(proc.wait(), timeout=_CONVERSION_TIMEOUT)
+                await asyncio.wait_for(proc.wait(), timeout=timeout)
             except asyncio.TimeoutError:
                 proc.kill()
                 await proc.wait()
-                raise RuntimeError(f"FFmpeg conversion timed out after {_CONVERSION_TIMEOUT}s")
+                raise RuntimeError(f"FFmpeg conversion timed out after {timeout}s")
             if proc.returncode != 0:
                 log_file.close()
                 detail = log_path.read_text(errors="replace")[-300:]
