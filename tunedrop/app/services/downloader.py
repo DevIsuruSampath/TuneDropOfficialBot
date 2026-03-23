@@ -230,7 +230,7 @@ class MusicDownloadManager:
         playlist_dir = await ensure_clean_directory(settings.playlists_dir / safe_name)
         zip_path = settings.zip_dir / f"{safe_name}.zip"
         try:
-            await task.update(build_progress_message(DownloadPhase.DOWNLOADING, details="Downloading playlist..."), parse_mode=ParseMode.HTML)
+            await task.update(build_progress_message(DownloadPhase.SEARCHING, details="Looking up playlist..."), parse_mode=ParseMode.HTML)
             result = await self._run_spotdl(task, task.request.source, playlist_dir, playlist=True)
             tracks = list_audio_files(playlist_dir)
             if not tracks:
@@ -353,7 +353,7 @@ class MusicDownloadManager:
         playlist_dir = await ensure_clean_directory(settings.playlists_dir / f"{title}_{int(time.time())}")
         zip_path = settings.zip_dir / f"{playlist_dir.name}.zip"
         try:
-            await task.update(build_progress_message(DownloadPhase.DOWNLOADING, details="Downloading playlist..."), parse_mode=ParseMode.HTML)
+            await task.update(build_progress_message(DownloadPhase.SEARCHING, details="Looking up playlist..."), parse_mode=ParseMode.HTML)
             await self._run_ytdlp_playlist(task, task.request.source, playlist_dir)
             tracks = list_audio_files(playlist_dir)
             if not tracks:
@@ -629,7 +629,9 @@ class MusicDownloadManager:
         if spotdl_state is not None:
             total_match = re.search(r"found\s+(\d+)\s+song", lowered)
             if total_match:
-                spotdl_state["total"] = int(total_match.group(1))
+                total = int(total_match.group(1))
+                spotdl_state["total"] = total
+                return f"<b>📋 Found {total} tracks</b>\n<i>Starting download...</i>"
 
         if "download" in lowered:
             # Extract song name from spotdl "Downloaded" lines
@@ -639,15 +641,21 @@ class MusicDownloadManager:
                 spotdl_state["done"] += 1
                 done = spotdl_state["done"]
                 total = spotdl_state["total"]
+                if total > 0 and track:
+                    bar_len = 10
+                    filled = int(bar_len * done / total)
+                    bar = "▰" * filled + "▱" * (bar_len - filled)
+                    return (
+                        f"<b>📦 Downloading playlist</b>\n"
+                        f"<code>{bar}</code>  <b>{done}/{total}</b>\n"
+                        f"<i>♫ {escape_html(track)}</i>"
+                    )
                 if total > 0:
-                    detail = f"{done}/{total}"
-                    if track:
-                        detail += f" · {track}"
-                    return build_progress_message(DownloadPhase.DOWNLOADING, details=detail)
+                    return f"<b>📦 Downloading playlist</b>\n<b>{done}/{total}</b>"
                 if track:
-                    return build_progress_message(DownloadPhase.DOWNLOADING, details=f"Track: {track}")
+                    return build_progress_message(DownloadPhase.DOWNLOADING, details=f"♫ {track}")
             elif track:
-                return build_progress_message(DownloadPhase.DOWNLOADING, details=f"Track: {track}")
+                return build_progress_message(DownloadPhase.DOWNLOADING, details=f"♫ {track}")
             return build_progress_message(DownloadPhase.DOWNLOADING)
         if "converting" in lowered:
             return build_progress_message(DownloadPhase.CONVERTING)
