@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 
 _TELEGRAM_BOT_UPLOAD_LIMIT = 2 * 1024 * 1024 * 1024  # 2GB
 _PROGRESS_UPDATE_INTERVAL = 4.0  # seconds between Telegram message edits
-_CONVERSION_TIMEOUT_BASE = 240  # minimum seconds for FFmpeg audio conversion
+_CONVERSION_TIMEOUT_BASE = 900  # minimum seconds for FFmpeg audio conversion
 _MAX_AUDIO_DURATION = 3 * 3600  # 3 hours
 _RESOLVE_FAILED = object()  # Sentinel: search resolution failed, not a cache hit
 _cached_bot_username: str | None = None
@@ -663,39 +663,43 @@ class MusicDownloadManager:
 
     async def _convert_to_mp3(self, input_path: Path, task: DownloadTask, timeout: float | None = None) -> Path:
         """Convert an audio file to MP3 using FFmpeg as a subprocess with a timeout."""
+        import os
+        import signal
+
         duration = await self._validate_audio_file(input_path)
-        # Dynamic timeout: scale with audio duration (2x real-time + 120s overhead, minimum 240s)
+        # Dynamic timeout: scale with audio duration (6x real-time + 300s overhead, minimum 900s)
         if timeout is None:
-            timeout = max(int(duration) * 2 + 120, _CONVERSION_TIMEOUT_BASE)
+            timeout = max(int(duration) * 6 + 300, _CONVERSION_TIMEOUT_BASE)
         output_path = input_path.with_suffix(".mp3")
         text = build_progress_message(DownloadPhase.CONVERTING, details="Converting to MP3...")
         await task.update(text, parse_mode=ParseMode.HTML)
-        log_path = input_path.with_suffix(".ffmpeg.log")
-        log_file = open(log_path, "w")  # noqa: SIM115
+
+        cmd = [
+            "ffmpeg", "-y",
+            "-analyzeduration", "10M", "-probesize", "10M",
+            "-i", str(input_path),
+            "-vn", "-codec:a", "libmp3lame", "-b:a", "320k",
+            str(output_path),
+        ]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "ffmpeg", "-nostdin",
-                "-analyzeduration", "10M", "-probesize", "10M",
-                "-i", str(input_path),
-                "-vn", "-codec:a", "libmp3lame", "-b:a", "320k",
-                str(output_path),
-                stdin=asyncio.subprocess.DEVNULL,
-                stdout=asyncio.subprocess.DEVNULL,
-                stderr=log_file,
-            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        except asyncio.TimeoutError:
             try:
-                await asyncio.wait_for(proc.wait(), timeout=timeout)
-            except asyncio.TimeoutError:
-                proc.kill()
-                await proc.wait()
-                raise RuntimeError(f"FFmpeg conversion timed out after {timeout}s")
-            if proc.returncode != 0:
-                log_file.close()
-                detail = log_path.read_text(errors="replace")[-300:]
-                raise RuntimeError(f"FFmpeg conversion failed (exit {proc.returncode}): {detail}")
-        finally:
-            log_file.close()
-            log_path.unlink(missing_ok=True)
+                os.killpg(proc.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            await proc.wait()
+            raise RuntimeError(f"FFmpeg conversion timed out after {timeout}s")
+        if proc.returncode != 0:
+            err = stderr.decode("utf-8", errors="replace")[-300:]
+            raise RuntimeError(f"FFmpeg conversion failed (exit {proc.returncode}): {err}")
         input_path.unlink(missing_ok=True)
         return output_path
 
@@ -722,7 +726,7 @@ class MusicDownloadManager:
         output_template = str(out_dir / "%(title)s.%(ext)s")
         ydl_opts = {
             **_base_ytdlp_opts(),
-            "format": "bestaudio",
+            "format": "ba[ext=m4a]/ba[acodec!=none]/ba/b",
             "outtmpl": output_template,
             "noplaylist": True,
             "windowsfilenames": True,
@@ -812,7 +816,7 @@ class MusicDownloadManager:
 
         ydl_opts = {
             **_base_ytdlp_opts(),
-            "format": "bestaudio",
+            "format": "ba[ext=m4a]/ba[acodec!=none]/ba/b",
             "outtmpl": str(out_dir / "%(playlist_index)s - %(title)s.%(ext)s"),
             "windowsfilenames": True,
             "restrictfilenames": True,
