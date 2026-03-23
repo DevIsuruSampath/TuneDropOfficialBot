@@ -654,26 +654,32 @@ class MusicDownloadManager:
         output_path = input_path.with_suffix(".mp3")
         text = build_progress_message(DownloadPhase.CONVERTING, details="Converting to MP3...")
         await task.update(text, parse_mode=ParseMode.HTML)
-        proc = await asyncio.create_subprocess_exec(
-            "ffmpeg", "-nostdin",
-            "-analyzeduration", "10M", "-probesize", "10M",
-            "-i", str(input_path),
-            "-vn", "-codec:a", "libmp3lame", "-b:a", "320k",
-            "-movflags", "+faststart",
-            str(output_path),
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        log_path = input_path.with_suffix(".ffmpeg.log")
+        log_file = open(log_path, "w")  # noqa: SIM115
         try:
-            await asyncio.wait_for(proc.wait(), timeout=_CONVERSION_TIMEOUT)
-        except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
-            raise RuntimeError(f"FFmpeg conversion timed out after {_CONVERSION_TIMEOUT}s")
-        if proc.returncode != 0:
-            stderr = await proc.stderr.read()
-            raise RuntimeError(f"FFmpeg conversion failed (exit {proc.returncode}): {stderr.decode(errors='replace')[:200]}")
+            proc = await asyncio.create_subprocess_exec(
+                "ffmpeg", "-nostdin",
+                "-analyzeduration", "10M", "-probesize", "10M",
+                "-i", str(input_path),
+                "-vn", "-codec:a", "libmp3lame", "-b:a", "320k",
+                str(output_path),
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=log_file,
+            )
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=_CONVERSION_TIMEOUT)
+            except asyncio.TimeoutError:
+                proc.kill()
+                await proc.wait()
+                raise RuntimeError(f"FFmpeg conversion timed out after {_CONVERSION_TIMEOUT}s")
+            if proc.returncode != 0:
+                log_file.close()
+                detail = log_path.read_text(errors="replace")[-300:]
+                raise RuntimeError(f"FFmpeg conversion failed (exit {proc.returncode}): {detail}")
+        finally:
+            log_file.close()
+            log_path.unlink(missing_ok=True)
         input_path.unlink(missing_ok=True)
         return output_path
 
