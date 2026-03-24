@@ -9,8 +9,6 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - traefik_data:/etc/traefik
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
     command:
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
@@ -37,46 +35,6 @@ services:
       - "traefik.http.routers.tunedrop.entrypoints=websecure"
       - "traefik.http.routers.tunedrop.tls.certresolver=letsencrypt"
       - "traefik.http.services.tunedrop.loadbalancer.server.port=8080"
-
-  watchtower:
-    image: containrrr/watchtower
-    container_name: watchtower
-    restart: unless-stopped
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    command:
-      - "--interval=3600"
-      - "--cleanup=true"
-      - "--label-enable=true"
-
-  auto-deploy:
-    image: alpine:latest
-    container_name: auto-deploy
-    restart: unless-stopped
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ./:/repo
-    working_dir: /repo
-    entrypoint: >
-      sh -c "
-        apk add --no-cache git curl &&
-        curl -sfL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 -o /usr/local/bin/docker-compose &&
-        chmod +x /usr/local/bin/docker-compose &&
-        git config --global safe.directory /repo &&
-        echo 'Auto-deploy: watching for new commits every 5 minutes...' &&
-        while true; do
-          git fetch origin main 2>/dev/null;
-          LOCAL=$$(git rev-parse HEAD);
-          REMOTE=$$(git rev-parse origin/main);
-          if [ \"$$LOCAL\" != \"$$REMOTE\" ]; then
-            echo \"$$(date): New commit detected. Pulling and rebuilding...\" &&
-            git reset --hard origin/main &&
-            docker-compose -f /repo/docker-compose.yml up -d --build tunedrop &&
-            echo \"$$(date): Deploy complete.\";
-          fi;
-          sleep 300;
-        done
-      "
 
 volumes:
   traefik_data:
