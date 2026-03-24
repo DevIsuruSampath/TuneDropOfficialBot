@@ -5,9 +5,7 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
-    ports:
-      - "80:80"
-      - "443:443"
+    network_mode: host
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - traefik_data:/etc/traefik
@@ -19,13 +17,12 @@ services:
       - "--certificatesresolvers.letsencrypt.acme.email=${TRAEFIK_ACME_EMAIL}"
       - "--certificatesresolvers.letsencrypt.acme.storage=/etc/traefik/acme.json"
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
-    networks:
-      - traefik-net
 
   tunedrop:
     build: .
     container_name: tunedrop
     restart: unless-stopped
+    network_mode: host
     env_file:
       - .env
     volumes:
@@ -38,8 +35,6 @@ services:
       - "traefik.http.routers.tunedrop.entrypoints=websecure"
       - "traefik.http.routers.tunedrop.tls.certresolver=letsencrypt"
       - "traefik.http.services.tunedrop.loadbalancer.server.port=8080"
-    networks:
-      - traefik-net
 
   watchtower:
     image: containrrr/watchtower
@@ -51,12 +46,6 @@ services:
       - "--interval=3600"
       - "--cleanup=true"
       - "--label-enable=true"
-    networks:
-      - traefik-net
-
-networks:
-  traefik-net:
-    driver: bridge
 
 volumes:
   traefik_data:
