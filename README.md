@@ -129,10 +129,9 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-This starts three services:
+This starts two services:
 - **TuneDrop** — the bot and web server behind Traefik
 - **Traefik** — reverse proxy with automatic HTTPS (Let's Encrypt)
-- **Watchtower** — checks for image updates every hour and auto-restarts containers
 
 4. Verify:
 
@@ -205,4 +204,3 @@ python -m tunedrop --mode web
 - `spotdl` quality depends on the available source on YouTube.
 - The bot cleans temporary download folders after each task, but final ZIP files remain until they are removed manually or by an external cleanup policy.
 - Traefik stores Let's Encrypt certificates in the `traefik_data` Docker volume. To force a certificate renewal, delete the volume and restart: `docker compose down -v && docker compose up -d`
-- Watchtower checks for updates every hour. To trigger a manual update: `docker exec watchtower watchtower tunedrop --run-once`
