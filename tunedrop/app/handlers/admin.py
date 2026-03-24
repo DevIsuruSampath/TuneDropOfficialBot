@@ -12,4 +12,5 @@ def register(app: Client) -> None:
     @once_per_message
     async def stats_handler(_, message):
         active = task_registry.active_count
-        await message.reply_text(f"Active tasks: {active}")
+        users = len(task_registry._user_tasks)
+        await message.reply_text(f"Active tasks: {active}\nUsers: {users}")

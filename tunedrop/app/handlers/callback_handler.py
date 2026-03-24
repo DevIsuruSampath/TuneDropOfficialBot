@@ -18,14 +18,24 @@ async def _safe_answer(callback_query, text: str, *, show_alert: bool = False) -
 
 
 def register(app: Client) -> None:
-    @app.on_callback_query(filters.regex("^cancel$"))
+    @app.on_callback_query(filters.regex(r"^cancel:"))
     async def cancel_callback(client: Client, callback_query):
         user = callback_query.from_user
         if not user:
             await _safe_answer(callback_query, "Not available.", show_alert=True)
             return
 
-        cancelled = await task_registry.cancel(user.id)
+        task_id = callback_query.data.split(":", 1)[1] if ":" in callback_query.data else None
+        if not task_id:
+            await _safe_answer(callback_query, "Invalid task.", show_alert=True)
+            return
+
+        task = task_registry._tasks.get(task_id)
+        if not task or task.user_id != user.id:
+            await _safe_answer(callback_query, "Task not found.", show_alert=True)
+            return
+
+        cancelled = await task_registry.cancel(task_id)
         if cancelled:
             await _safe_answer(callback_query, "Cancelled!")
             try:
@@ -42,8 +52,9 @@ def register(app: Client) -> None:
             await _safe_answer(callback_query, "Not available.", show_alert=True)
             return
 
-        if task_registry.has_active(user.id):
-            await _safe_answer(callback_query, "You have a running task.", show_alert=True)
+        from tunedrop.app.core.config import settings
+        if task_registry.get_user_active_count(user.id) >= settings.max_concurrent_tasks:
+            await _safe_answer(callback_query, "Too many active downloads.", show_alert=True)
             return
 
         retried = await task_registry.retry_download(client, callback_query.message, user.id)

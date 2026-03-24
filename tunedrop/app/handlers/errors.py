@@ -20,6 +20,6 @@ def register(app: Client) -> None:
         if not user:
             await message.reply_text("<b>❓ User not found.</b>", parse_mode=ParseMode.HTML)
             return
-        cancelled = await task_registry.cancel(user.id)
-        text = "<b>Cancelled</b>" if cancelled else "<b>No active task</b>"
+        count = await task_registry.cancel_all(user.id)
+        text = f"<b>Cancelled {count} task(s)</b>" if count else "<b>No active tasks</b>"
         await message.reply_text(text, parse_mode=ParseMode.HTML)

@@ -161,12 +161,6 @@ def build_welcome_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def build_cancel_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("Cancel", callback_data="cancel")],
-    ])
-
-
 def build_retry_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔁 Try Again", callback_data="retry")],

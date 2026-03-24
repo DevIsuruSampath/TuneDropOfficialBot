@@ -48,6 +48,7 @@ class Settings:
     web_port: int = _safe_int(os.getenv("WEB_PORT", "8080"), 8080)
     download_speed_kbps: float = _safe_float(os.getenv("DEFAULT_USER_SPEED_KBPS", "100"), 100.0)
     max_playlist_items: int = _safe_int(os.getenv("MAX_PLAYLIST_ITEMS", "100"), 100)
+    max_concurrent_tasks: int = _safe_int(os.getenv("MAX_CONCURRENT_TASKS", "3"), 3)
     progress_update_interval: float = _safe_float(os.getenv("PROGRESS_UPDATE_INTERVAL", "2.5"), 2.5)
     spotdl_inactivity_timeout_seconds: float = _safe_float(os.getenv("SPOTDL_INACTIVITY_TIMEOUT_SECONDS", "180"), 180.0)
     auto_cleanup_minutes: int = _safe_int(os.getenv("AUTO_CLEANUP_MINUTES", "30"), 30)
@@ -113,6 +114,8 @@ class Settings:
 
         if self.download_speed_kbps <= 0:
             raise RuntimeError("DEFAULT_USER_SPEED_KBPS must be greater than 0.")
+        if self.max_concurrent_tasks <= 0:
+            raise RuntimeError("MAX_CONCURRENT_TASKS must be greater than 0.")
         if self.max_playlist_items <= 0:
             raise RuntimeError("MAX_PLAYLIST_ITEMS must be greater than 0.")
         if self.progress_update_interval <= 0:
