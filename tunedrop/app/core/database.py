@@ -49,6 +49,7 @@ async def init_database():
         await database["file_links"].create_index("created_at", expireAfterSeconds=86400)
         await database["user_files"].create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
         await database["user_files"].create_index("created_at", expireAfterSeconds=86400)
+        await database["active_tasks"].drop_indexes()
         await database["active_tasks"].create_index([("task_id", ASCENDING)], unique=True)
         await database["active_tasks"].create_index([("user_id", ASCENDING)])
         await database["active_tasks"].create_index("created_at", expireAfterSeconds=86400)
