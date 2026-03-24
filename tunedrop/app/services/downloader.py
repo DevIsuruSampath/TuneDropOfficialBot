@@ -458,7 +458,16 @@ class MusicDownloadManager:
     async def _send_cached_audio(self, app: Client, message: Message, cached: dict[str, Any]) -> None:
         """Send a cached song to the user using the stored Telegram file_id."""
         username = await self._get_bot_username(app)
-        download_url = cached.get("download_link")
+        download_url = await link_store.create_link(
+            user_id=message.from_user.id,
+            payload={
+                "chat_id": settings.song_cache_channel_id,
+                "message_id": 0,
+                "file_id": cached["telegram_file_id"],
+                "file_name": f"{cached['artist']} - {cached['title']}.mp3",
+                "file_size": cached["file_size"],
+            },
+        )
         audio_markup = build_audio_keyboard(username, download_url=download_url) if username else None
         caption = build_audio_caption(
             title=cached["title"],
