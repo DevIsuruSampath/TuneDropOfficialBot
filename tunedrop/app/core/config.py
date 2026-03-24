@@ -40,7 +40,10 @@ class Settings:
     private_channel_id: int = _safe_int(os.getenv("PRIVATE_CHANNEL_ID", ""), 0)
     song_cache_channel_id: int = _safe_int(os.getenv("SONG_CACHE_CHANNEL_ID", ""), 0)
     bot_session_name: str = os.getenv("BOT_SESSION_NAME", "music_downloader_bot")
-    download_base_url: str = os.getenv("DOWNLOAD_BASE_URL", "http://127.0.0.1:8080")
+    download_base_url: str = os.getenv(
+        "DOWNLOAD_BASE_URL",
+        f"https://{os.getenv('TUNEDROP_DOMAIN', '127.0.0.1:8080')}"
+    )
     web_host: str = os.getenv("WEB_HOST", "0.0.0.0")
     web_port: int = _safe_int(os.getenv("WEB_PORT", "8080"), 8080)
     download_speed_kbps: float = _safe_float(os.getenv("DEFAULT_USER_SPEED_KBPS", "100"), 100.0)
