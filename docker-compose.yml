@@ -19,7 +19,7 @@ services:
       - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
 
   tunedrop:
-    build: .
+    image: ghcr.io/devisurusampath/tunedropofficialbot:latest
     container_name: tunedrop
     restart: unless-stopped
     network_mode: host
@@ -35,6 +35,7 @@ services:
       - "traefik.http.routers.tunedrop.entrypoints=websecure"
       - "traefik.http.routers.tunedrop.tls.certresolver=letsencrypt"
       - "traefik.http.services.tunedrop.loadbalancer.server.port=8080"
+      - "com.centurylinklabs.watchtower.enable=true"
 
   watchtower:
     image: containrrr/watchtower
@@ -42,6 +43,8 @@ services:
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - WATCHTOWER_REGISTRY_URL=ghcr.io
     command:
       - "--interval=3600"
       - "--cleanup=true"
