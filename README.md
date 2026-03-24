@@ -23,7 +23,9 @@ Production-oriented Telegram bot built with Pyrofork, `spotdl`, `yt-dlp`, FastAP
 
 ```text
 .
+├── .dockerignore
 ├── .env.example
+├── docker-compose.yml
 ├── Dockerfile
 ├── README.md
 ├── requirements.txt
@@ -100,6 +102,46 @@ Production-oriented Telegram bot built with Pyrofork, `spotdl`, `yt-dlp`, FastAP
 
 ## Setup
 
+### Docker (recommended)
+
+1. Copy `.env.example` to `.env` and fill in the values.
+
+```bash
+cp .env.example .env
+```
+
+2. At minimum, set these variables:
+
+| Variable | Description |
+|---|---|
+| `API_ID` | Telegram API ID from `my.telegram.org` |
+| `API_HASH` | Telegram API hash |
+| `BOT_TOKEN` | Bot token from BotFather |
+| `PRIVATE_CHANNEL_ID` | Private channel ID where the bot is admin |
+| `MONGODB_URI` | MongoDB connection string |
+| `TUNEDROP_DOMAIN` | Your public domain (e.g. `tunedrop.example.com`) |
+| `TRAEFIK_ACME_EMAIL` | Email for Let's Encrypt certificates |
+| `DOWNLOAD_BASE_URL` | Must match `TUNEDROP_DOMAIN` with `https://` |
+
+3. Build and start all services:
+
+```bash
+docker compose up -d --build
+```
+
+This starts three services:
+- **TuneDrop** — the bot and web server behind Traefik
+- **Traefik** — reverse proxy with automatic HTTPS (Let's Encrypt)
+- **Watchtower** — checks for image updates every hour and auto-restarts containers
+
+4. Verify:
+
+```bash
+docker compose logs -f tunedrop
+```
+
+### Manual setup
+
 1. Create and activate a virtual environment.
 2. Install dependencies:
 
@@ -162,3 +204,5 @@ python -m tunedrop --mode web
 - Large playlists can take time. Use `MAX_PLAYLIST_ITEMS` to cap work.
 - `spotdl` quality depends on the available source on YouTube.
 - The bot cleans temporary download folders after each task, but final ZIP files remain until they are removed manually or by an external cleanup policy.
+- Traefik stores Let's Encrypt certificates in the `traefik_data` Docker volume. To force a certificate renewal, delete the volume and restart: `docker compose down -v && docker compose up -d`
+- Watchtower checks for updates every hour. To trigger a manual update: `docker exec watchtower watchtower tunedrop --run-once`
