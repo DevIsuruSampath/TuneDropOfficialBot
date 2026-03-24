@@ -1,0 +1,14 @@
+.env
+*.session
+.git
+.gitignore
+__pycache__
+*.pyc
+downloads/
+data/
+logs/
+.vscode/
+.idea/
+*.md
+docker-compose.yml
+.dockerignore
