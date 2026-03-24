@@ -52,11 +52,6 @@ def register(app: Client) -> None:
             await _safe_answer(callback_query, "Not available.", show_alert=True)
             return
 
-        from tunedrop.app.core.config import settings
-        if task_registry.get_user_active_count(user.id) >= settings.max_concurrent_tasks:
-            await _safe_answer(callback_query, "Too many active downloads.", show_alert=True)
-            return
-
         retried = await task_registry.retry_download(client, callback_query.message, user.id)
         if not retried:
             await _safe_answer(callback_query, "Nothing to retry.", show_alert=True)
