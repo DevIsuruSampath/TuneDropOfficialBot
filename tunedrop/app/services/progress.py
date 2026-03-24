@@ -40,6 +40,7 @@ class DownloadTask:
     chat_id: int
     request: Any
     status_message: Message
+    original_message_id: int = 0
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     worker: asyncio.Task[Any] | None = None
     last_text: str = ""
@@ -198,6 +199,7 @@ class TaskRegistry:
             chat_id=request.chat_id,
             request=request,
             status_message=status_message,
+            original_message_id=message.id,
             _reply_markup=cancel_kb,
         )
         self._tasks[task_id] = task
@@ -312,15 +314,16 @@ class TaskRegistry:
             task.worker.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task.worker
+            # _run's finally block already cleaned up _tasks, _user_tasks,
+            # and called _dequeue_next() — just update queue positions.
+            await self._update_queue_positions()
+            return True
 
         self._tasks.pop(task_id, None)
         if task.user_id in self._user_tasks:
             self._user_tasks[task.user_id].discard(task_id)
             if not self._user_tasks[task.user_id]:
                 del self._user_tasks[task.user_id]
-
-        if not was_queued:
-            await self._dequeue_next()
 
         await self._update_queue_positions()
         return True

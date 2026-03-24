@@ -123,7 +123,7 @@ class MusicDownloadManager:
             cached = await song_cache.get_cached_song(cache_key)
             if cached:
                 try:
-                    await self._send_cached_audio(app, message, cached)
+                    await self._send_cached_audio(app, message, cached, task)
                     await task.update(build_completion_message(), parse_mode=ParseMode.HTML)
                     return
                 except Exception:
@@ -286,7 +286,7 @@ class MusicDownloadManager:
             cached = await song_cache.get_cached_song(cache_key)
             if cached:
                 try:
-                    await self._send_cached_audio(app, message, cached)
+                    await self._send_cached_audio(app, message, cached, task)
                     await task.update(build_completion_message(), parse_mode=ParseMode.HTML)
                     return
                 except Exception:
@@ -411,7 +411,7 @@ class MusicDownloadManager:
                 cached = await song_cache.get_cached_song(cache_key)
                 if cached:
                     try:
-                        await self._send_cached_audio(app, message, cached)
+                        await self._send_cached_audio(app, message, cached, task)
                         await task.update(build_completion_message(), parse_mode=ParseMode.HTML)
                         return None  # Cache hit
                     except Exception:
@@ -423,7 +423,7 @@ class MusicDownloadManager:
             logger.exception("Search resolution failed, falling back to ytsearch download")
             return sentinel  # type: ignore[return-value]
 
-    async def _send_audio(self, app: Client, message: Message, audio_file: Path, metadata: Any, reply_markup: InlineKeyboardMarkup | None = None) -> None:
+    async def _send_audio(self, app: Client, message: Message, audio_file: Path, metadata: Any, task: DownloadTask, reply_markup: InlineKeyboardMarkup | None = None) -> None:
         caption = build_audio_caption(
             title=metadata.title,
             artist=metadata.artist,
@@ -435,6 +435,7 @@ class MusicDownloadManager:
             caption=caption,
             caption_entities=None,
             parse_mode=ParseMode.HTML,
+            reply_to_message_id=task.original_message_id,
             reply_markup=reply_markup,
             title=metadata.title,
             performer=metadata.artist,
@@ -455,7 +456,7 @@ class MusicDownloadManager:
             pass
         return None
 
-    async def _send_cached_audio(self, app: Client, message: Message, cached: dict[str, Any]) -> None:
+    async def _send_cached_audio(self, app: Client, message: Message, cached: dict[str, Any], task: DownloadTask) -> None:
         """Send a cached song to the user using the stored Telegram file_id."""
         username = await self._get_bot_username(app)
         download_url = await link_store.create_link(
@@ -480,6 +481,7 @@ class MusicDownloadManager:
             audio=cached["telegram_file_id"],
             caption=caption,
             parse_mode=ParseMode.HTML,
+            reply_to_message_id=task.original_message_id,
             reply_markup=audio_markup,
             title=cached["title"],
             performer=cached["artist"],
@@ -523,7 +525,7 @@ class MusicDownloadManager:
         if file_size <= _TELEGRAM_BOT_UPLOAD_LIMIT:
             username = await self._get_bot_username(app)
             audio_markup = build_audio_keyboard(username, download_url=download_url) if username else None
-            await self._send_audio(app, message, audio_file, metadata, reply_markup=audio_markup)
+            await self._send_audio(app, message, audio_file, metadata, task, reply_markup=audio_markup)
         else:
             await self._send_large_audio(app, message, audio_file, metadata, task)
 
