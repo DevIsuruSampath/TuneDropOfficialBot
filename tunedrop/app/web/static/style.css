@@ -71,3 +71,35 @@ h1 {
 .button:hover {
   transform: translateY(-1px);
 }
+
+.countdown {
+  margin: 24px 0;
+  text-align: center;
+}
+
+.countdown-label {
+  display: block;
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-bottom: 6px;
+}
+
+.countdown-timer {
+  font-size: 2.2rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+}
+
+.countdown-timer.warning {
+  color: #c44;
+}
+
+.countdown-timer.expired-timer {
+  color: #999;
+}
+
+.card.expired {
+  border-color: rgba(181, 85, 45, 0.3);
+}

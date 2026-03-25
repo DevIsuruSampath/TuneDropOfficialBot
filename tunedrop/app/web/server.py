@@ -6,7 +6,7 @@ from urllib.parse import quote
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -49,11 +49,26 @@ def create_web_app() -> FastAPI:
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.get("/generate/{ref}")
+    async def generate_download_link(ref: str):
+        link = await link_store.resolve_ref(ref)
+        if not link:
+            raise HTTPException(status_code=404, detail="Download reference not found")
+        return RedirectResponse(url=link, status_code=307)
+
     @app.get("/download/{token}", response_class=HTMLResponse)
     async def download_page(request: Request, token: str):
         item = await link_store.get(token)
         if not item:
             raise HTTPException(status_code=404, detail="File not found")
+
+        if item.get("expired"):
+            context = {
+                "request": request,
+                "file_name": item.get("file_name", "Unknown"),
+                "expired": True,
+            }
+            return templates.TemplateResponse("download.html", context)
 
         size_bytes = int(item["file_size"])
         context = {
@@ -63,6 +78,7 @@ def create_web_app() -> FastAPI:
             "speed_kbps": f"{settings.download_speed_kbps:.0f}",
             "estimated_time": format_seconds(estimate_download_time(size_bytes, settings.download_speed_kbps)),
             "direct_link": f"/file/{token}",
+            "expires_at": item.get("expires_at"),
         }
         return templates.TemplateResponse("download.html", context)
 
@@ -71,6 +87,8 @@ def create_web_app() -> FastAPI:
         item = await link_store.get(token)
         if not item:
             raise HTTPException(status_code=404, detail="File not found")
+        if item.get("expired"):
+            raise HTTPException(status_code=410, detail="Download link has expired")
 
         file_id = item["file_id"]
         file_name = item.get("file_name", "download.zip")

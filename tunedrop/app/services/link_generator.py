@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import secrets
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from tunedrop.app.core.database import get_database
@@ -9,10 +9,36 @@ from tunedrop.app.core.config import settings
 from tunedrop.app.utils.time_utils import format_bytes
 
 
+_LINK_TTL_HOURS = 24
+
+
 class LinkStore:
+    async def create_ref(self, payload: dict[str, Any]) -> str:
+        """Create a persistent download reference (no expiry)."""
+        ref = secrets.token_urlsafe(12)
+        db = get_database()
+        await db["download_refs"].insert_one(
+            {"ref": ref, **payload, "created_at": datetime.now(UTC)},
+        )
+        return ref
+
+    async def resolve_ref(self, ref: str) -> str | None:
+        """Resolve a persistent ref to a new 24-hour expiring link."""
+        db = get_database()
+        row = await db["download_refs"].find_one({"ref": ref})
+        if not row:
+            return None
+        payload = {
+            k: row[k]
+            for k in ("chat_id", "file_id", "file_name", "file_size")
+            if k in row
+        }
+        return await self.create_link(row["user_id"], payload)
+
     async def create_link(self, user_id: int, payload: dict[str, Any]) -> str:
         token = secrets.token_urlsafe(16)
         created_at = datetime.now(UTC)
+        expires_at = created_at + timedelta(hours=_LINK_TTL_HOURS)
         link = f"{settings.download_base_url.rstrip('/')}/download/{token}"
         db = get_database()
 
@@ -21,6 +47,7 @@ class LinkStore:
                 "token": token,
                 "user_id": user_id,
                 "created_at": created_at,
+                "expires_at": expires_at,
                 **payload,
             }
         )
@@ -34,6 +61,7 @@ class LinkStore:
                 "size_text": format_bytes(payload["file_size"]),
                 "link": link,
                 "created_at": created_at,
+                "expires_at": expires_at,
             }
         )
 
@@ -68,9 +96,12 @@ class LinkStore:
         row = await db["file_links"].find_one({"token": token}, projection={"_id": 0, "token": 0, "user_id": 0})
         if not row:
             return None
-        created_at = row.get("created_at")
-        if created_at is not None:
-            row["created_at"] = created_at.isoformat()
+        expires_at = row.get("expires_at")
+        if expires_at is not None and datetime.now(UTC) > expires_at:
+            row["expired"] = True
+        for field in ("created_at", "expires_at"):
+            if row.get(field) is not None:
+                row[field] = row[field].isoformat()
         return row
 
 

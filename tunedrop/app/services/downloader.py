@@ -196,9 +196,9 @@ class MusicDownloadManager:
                         app, audio_file, metadata.title, metadata.artist, metadata.duration, metadata.thumbnail_path,
                     )
                     file_name = f"{metadata.artist} - {metadata.title}.mp3"
-                    download_url = await link_store.create_link(
-                        user_id=task.user_id,
+                    ref = await link_store.create_ref(
                         payload={
+                            "user_id": task.user_id,
                             "chat_id": settings.song_cache_channel_id,
                             "message_id": 0,
                             "file_id": audio_file_id,
@@ -206,6 +206,7 @@ class MusicDownloadManager:
                             "file_size": file_size,
                         },
                     )
+                    download_url = f"{settings.download_base_url.rstrip('/')}/generate/{ref}"
                     await song_cache.cache_song(
                         cache_key=cache_key,
                         key_type=cache_key_type,
@@ -319,9 +320,9 @@ class MusicDownloadManager:
                         app, audio_file, metadata.title, metadata.artist, metadata.duration, thumb_path,
                     )
                     file_name = f"{metadata.artist} - {metadata.title}.mp3"
-                    download_url = await link_store.create_link(
-                        user_id=task.user_id,
+                    ref = await link_store.create_ref(
                         payload={
+                            "user_id": task.user_id,
                             "chat_id": settings.song_cache_channel_id,
                             "message_id": 0,
                             "file_id": audio_file_id,
@@ -329,6 +330,7 @@ class MusicDownloadManager:
                             "file_size": file_size,
                         },
                     )
+                    download_url = f"{settings.download_base_url.rstrip('/')}/generate/{ref}"
                     await song_cache.cache_song(
                         cache_key=cache_key,
                         key_type=cache_key_type,
@@ -459,9 +461,9 @@ class MusicDownloadManager:
     async def _send_cached_audio(self, app: Client, message: Message, cached: dict[str, Any], task: DownloadTask) -> None:
         """Send a cached song to the user using the stored Telegram file_id."""
         username = await self._get_bot_username(app)
-        download_url = await link_store.create_link(
-            user_id=message.from_user.id,
+        ref = await link_store.create_ref(
             payload={
+                "user_id": message.from_user.id,
                 "chat_id": settings.song_cache_channel_id,
                 "message_id": 0,
                 "file_id": cached["telegram_file_id"],
@@ -469,6 +471,7 @@ class MusicDownloadManager:
                 "file_size": cached["file_size"],
             },
         )
+        download_url = f"{settings.download_base_url.rstrip('/')}/generate/{ref}"
         audio_markup = build_audio_keyboard(username, download_url=download_url) if username else None
         caption = build_audio_caption(
             title=cached["title"],
