@@ -5,18 +5,13 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
-    ports:
-      - "80:80"
-      - "443:443"
-    networks:
-      - web
+    network_mode: host
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - traefik_data:/etc/traefik
     command:
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
-      - "--providers.docker.network=tunedropofficialbot_web"
       - "--entryPoints.web.address=:80"
       - "--entryPoints.websecure.address=:443"
       - "--certificatesresolvers.letsencrypt.acme.email=${TRAEFIK_ACME_EMAIL}"
@@ -27,8 +22,7 @@ services:
     build: .
     container_name: tunedrop
     restart: unless-stopped
-    networks:
-      - web
+    network_mode: host
     env_file:
       - .env
     volumes:
@@ -37,17 +31,10 @@ services:
       - logs:/app/logs
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.tunedrop-http.rule=Host(`${TUNEDROP_DOMAIN}`)"
-      - "traefik.http.routers.tunedrop-http.entrypoints=web"
-      - "traefik.http.routers.tunedrop-http.middlewares=tunedrop-https-redirect"
-      - "traefik.http.middlewares.tunedrop-https-redirect.redirectscheme.scheme=https"
       - "traefik.http.routers.tunedrop.rule=Host(`${TUNEDROP_DOMAIN}`)"
       - "traefik.http.routers.tunedrop.entrypoints=websecure"
       - "traefik.http.routers.tunedrop.tls.certresolver=letsencrypt"
       - "traefik.http.services.tunedrop.loadbalancer.server.port=8080"
-
-networks:
-  web:
 
 volumes:
   traefik_data:
