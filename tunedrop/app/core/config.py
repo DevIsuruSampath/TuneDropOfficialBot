@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from enum import StrEnum
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -10,12 +9,6 @@ from dotenv import load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parents[3]
 load_dotenv(BASE_DIR / ".env")
-
-
-class RuntimeTarget(StrEnum):
-    BOT = "bot"
-    WEB = "web"
-    ALL = "all"
 
 
 def _safe_int(value: str, default: int) -> int:
@@ -88,7 +81,7 @@ class Settings:
         ):
             path.mkdir(parents=True, exist_ok=True)
 
-    def validate(self, target: RuntimeTarget = RuntimeTarget.ALL) -> None:
+    def validate(self) -> None:
         missing: list[str] = []
 
         if not self.bot_token:
@@ -97,14 +90,12 @@ class Settings:
             missing.append("MONGODB_URI")
         if not self.mongodb_database:
             missing.append("MONGODB_DATABASE")
-
-        if target in {RuntimeTarget.BOT, RuntimeTarget.ALL}:
-            if self.api_id <= 0:
-                missing.append("API_ID")
-            if not self.api_hash:
-                missing.append("API_HASH")
-            if self.private_channel_id == 0:
-                missing.append("PRIVATE_CHANNEL_ID")
+        if self.api_id <= 0:
+            missing.append("API_ID")
+        if not self.api_hash:
+            missing.append("API_HASH")
+        if self.private_channel_id == 0:
+            missing.append("PRIVATE_CHANNEL_ID")
 
         if missing:
             raise RuntimeError(
