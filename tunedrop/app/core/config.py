@@ -44,6 +44,7 @@ class Settings:
     max_concurrent_tasks: int = _safe_int(os.getenv("MAX_CONCURRENT_TASKS", "1"), 1)
     progress_update_interval: float = _safe_float(os.getenv("PROGRESS_UPDATE_INTERVAL", "2.5"), 2.5)
     spotdl_inactivity_timeout_seconds: float = _safe_float(os.getenv("SPOTDL_INACTIVITY_TIMEOUT_SECONDS", "180"), 180.0)
+    ads_enabled: bool = os.getenv("ADS_ENABLED", "false").lower() in ("true", "1", "yes")
     auto_cleanup_minutes: int = _safe_int(os.getenv("AUTO_CLEANUP_MINUTES", "30"), 30)
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
     admin_user_ids: set[int] = field(

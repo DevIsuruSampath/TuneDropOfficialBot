@@ -7,56 +7,114 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  {% if expired %}
-  <main class="card expired">
-    <p class="eyebrow">Telegram Music Downloader</p>
-    <h1>Link Expired</h1>
-    <p class="meta">This download link has expired (24-hour limit).</p>
-    <p class="meta">Go back to Telegram and click <b>Download</b> again to get a new link.</p>
-  </main>
-  {% else %}
-  <main class="card">
-    <p class="eyebrow">Telegram Music Downloader</p>
-    <h1>{{ file_name }}</h1>
-    <p class="meta">File size: {{ size_text }}</p>
-    <p class="meta">Estimated time at {{ speed_kbps }} KB/s: {{ estimated_time }}</p>
-    <div class="countdown">
-      <span class="countdown-label">Link expires in</span>
-      <span class="countdown-timer" id="timer">--:--:--</span>
+  <div class="page-wrapper">
+    {% if ads_enabled %}
+    <div class="ad-slot ad-slot-desktop">
+      <script>
+        atOptions = {
+          'key' : 'f0c271d2355a57b29b6b278209294341',
+          'format' : 'iframe',
+          'height' : 90,
+          'width' : 728,
+          'params' : {}
+        };
+      </script>
+      <script src="https://cardinaltangible.com/f0c271d2355a57b29b6b278209294341/invoke.js"></script>
     </div>
-    <a class="button" href="{{ direct_link }}">Download</a>
-  </main>
-  <script>
-    (function () {
-      var expiresAt = new Date("{{ expires_at }}").getTime();
-      var timerEl = document.getElementById("timer");
-      var btnEl = document.querySelector(".button");
+    {% endif %}
 
-      function pad(n) {
-        return n < 10 ? "0" + n : String(n);
-      }
+    {% if expired %}
+    <main class="card expired">
+      <p class="eyebrow">Telegram Music Downloader</p>
+      <h1>Link Expired</h1>
+      <p class="meta">This download link has expired (24-hour limit).</p>
+      <p class="meta">Go back to Telegram and click <b>Download</b> again to get a new link.</p>
+    </main>
+    {% else %}
+    <main class="card">
+      <p class="eyebrow">Telegram Music Downloader</p>
+      <h1>{{ file_name }}</h1>
+      <p class="meta">File size: {{ size_text }}</p>
+      <p class="meta">Estimated time at {{ speed_kbps }} KB/s: {{ estimated_time }}</p>
+      <div class="countdown">
+        <span class="countdown-label">Link expires in</span>
+        <span class="countdown-timer" id="timer">--:--:--</span>
+      </div>
+      <a class="button" href="{{ direct_link }}">Download</a>
+    </main>
+    <script>
+      (function () {
+        var expiresAt = new Date("{{ expires_at }}").getTime();
+        var timerEl = document.getElementById("timer");
+        var btnEl = document.querySelector(".button");
 
-      function update() {
-        var diff = expiresAt - Date.now();
-        if (diff <= 0) {
-          timerEl.textContent = "00:00:00";
-          timerEl.classList.add("expired-timer");
-          if (btnEl) btnEl.style.display = "none";
-          return;
+        function pad(n) {
+          return n < 10 ? "0" + n : String(n);
         }
-        var h = Math.floor(diff / 3600000);
-        var m = Math.floor((diff % 3600000) / 60000);
-        var s = Math.floor((diff % 60000) / 1000);
-        timerEl.textContent = pad(h) + ":" + pad(m) + ":" + pad(s);
 
-        if (h < 1) timerEl.classList.add("warning");
-        requestAnimationFrame(update);
-      }
+        function update() {
+          var diff = expiresAt - Date.now();
+          if (diff <= 0) {
+            timerEl.textContent = "00:00:00";
+            timerEl.classList.add("expired-timer");
+            if (btnEl) btnEl.style.display = "none";
+            return;
+          }
+          var h = Math.floor(diff / 3600000);
+          var m = Math.floor((diff % 3600000) / 60000);
+          var s = Math.floor((diff % 60000) / 1000);
+          timerEl.textContent = pad(h) + ":" + pad(m) + ":" + pad(s);
 
-      update();
-      setInterval(update, 1000);
-    })();
-  </script>
-  {% endif %}
+          if (h < 1) timerEl.classList.add("warning");
+          requestAnimationFrame(update);
+        }
+
+        update();
+        setInterval(update, 1000);
+      })();
+    </script>
+    {% endif %}
+
+    {% if ads_enabled %}
+    <div class="ad-slot ad-slot-desktop">
+      <script>
+        atOptions = {
+          'key' : '360f27a067037e47107b2b725150e7b5',
+          'format' : 'iframe',
+          'height' : 250,
+          'width' : 300,
+          'params' : {}
+        };
+      </script>
+      <script src="https://cardinaltangible.com/360f27a067037e47107b2b725150e7b5/invoke.js"></script>
+    </div>
+
+    <div class="ad-slot ad-slot-mobile">
+      <script>
+        atOptions = {
+          'key' : '360f27a067037e47107b2b725150e7b5',
+          'format' : 'iframe',
+          'height' : 250,
+          'width' : 300,
+          'params' : {}
+        };
+      </script>
+      <script src="https://cardinaltangible.com/360f27a067037e47107b2b725150e7b5/invoke.js"></script>
+    </div>
+
+    <div class="ad-slot ad-slot-mobile">
+      <script>
+        atOptions = {
+          'key' : 'd76c947d5bce357e40ad06c5443da535',
+          'format' : 'iframe',
+          'height' : 50,
+          'width' : 320,
+          'params' : {}
+        };
+      </script>
+      <script src="https://cardinaltangible.com/d76c947d5bce357e40ad06c5443da535/invoke.js"></script>
+    </div>
+    {% endif %}
+  </div>
 </body>
 </html>

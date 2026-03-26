@@ -67,6 +67,7 @@ def create_web_app() -> FastAPI:
                 "request": request,
                 "file_name": item.get("file_name", "Unknown"),
                 "expired": True,
+                "ads_enabled": settings.ads_enabled,
             }
             return templates.TemplateResponse("download.html", context)
 
@@ -79,6 +80,7 @@ def create_web_app() -> FastAPI:
             "estimated_time": format_seconds(estimate_download_time(size_bytes, settings.download_speed_kbps)),
             "direct_link": f"/file/{token}",
             "expires_at": item.get("expires_at"),
+            "ads_enabled": settings.ads_enabled,
         }
         return templates.TemplateResponse("download.html", context)
 
