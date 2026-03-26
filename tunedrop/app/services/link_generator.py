@@ -97,8 +97,11 @@ class LinkStore:
         if not row:
             return None
         expires_at = row.get("expires_at")
-        if expires_at is not None and datetime.now(UTC) > expires_at:
-            row["expired"] = True
+        if expires_at is not None:
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=UTC)
+            if datetime.now(UTC) > expires_at:
+                row["expired"] = True
         for field in ("created_at", "expires_at"):
             if row.get(field) is not None:
                 row[field] = row[field].isoformat()
