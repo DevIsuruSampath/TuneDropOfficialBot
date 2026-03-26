@@ -68,6 +68,10 @@ def create_web_app() -> FastAPI:
                 "file_name": item.get("file_name", "Unknown"),
                 "expired": True,
                 "ads_enabled": settings.ads_enabled,
+                "ads_desktop_top_banner": settings.ads_desktop_top_banner,
+                "ads_desktop_inline_banner": settings.ads_desktop_inline_banner,
+                "ads_mobile_top_banner": settings.ads_mobile_top_banner,
+                "ads_mobile_bottom_banner": settings.ads_mobile_bottom_banner,
             }
             return templates.TemplateResponse("download.html", context)
 
@@ -81,6 +85,10 @@ def create_web_app() -> FastAPI:
             "direct_link": f"/file/{token}",
             "expires_at": item.get("expires_at"),
             "ads_enabled": settings.ads_enabled,
+            "ads_desktop_top_banner": settings.ads_desktop_top_banner,
+            "ads_desktop_inline_banner": settings.ads_desktop_inline_banner,
+            "ads_mobile_top_banner": settings.ads_mobile_top_banner,
+            "ads_mobile_bottom_banner": settings.ads_mobile_bottom_banner,
         }
         return templates.TemplateResponse("download.html", context)
 

@@ -45,6 +45,30 @@ class Settings:
     progress_update_interval: float = _safe_float(os.getenv("PROGRESS_UPDATE_INTERVAL", "2.5"), 2.5)
     spotdl_inactivity_timeout_seconds: float = _safe_float(os.getenv("SPOTDL_INACTIVITY_TIMEOUT_SECONDS", "180"), 180.0)
     ads_enabled: bool = os.getenv("ADS_ENABLED", "false").lower() in ("true", "1", "yes")
+    ads_desktop_top_banner: dict = field(default_factory=lambda: {
+        "key": os.getenv("WEB_ADS_DESKTOP_TOP_BANNER_KEY", "f0c271d2355a57b29b6b278209294341"),
+        "invoke_url": os.getenv("WEB_ADS_DESKTOP_TOP_BANNER_INVOKE_URL", "https://cardinaltangible.com/f0c271d2355a57b29b6b278209294341/invoke.js"),
+        "width": _safe_int(os.getenv("WEB_ADS_DESKTOP_TOP_BANNER_WIDTH", "728"), 728),
+        "height": _safe_int(os.getenv("WEB_ADS_DESKTOP_TOP_BANNER_HEIGHT", "90"), 90),
+    })
+    ads_desktop_inline_banner: dict = field(default_factory=lambda: {
+        "key": os.getenv("WEB_ADS_DESKTOP_INLINE_BANNER_KEY", "360f27a067037e47107b2b725150e7b5"),
+        "invoke_url": os.getenv("WEB_ADS_DESKTOP_INLINE_BANNER_INVOKE_URL", "https://cardinaltangible.com/360f27a067037e47107b2b725150e7b5/invoke.js"),
+        "width": _safe_int(os.getenv("WEB_ADS_DESKTOP_INLINE_BANNER_WIDTH", "300"), 300),
+        "height": _safe_int(os.getenv("WEB_ADS_DESKTOP_INLINE_BANNER_HEIGHT", "250"), 250),
+    })
+    ads_mobile_top_banner: dict = field(default_factory=lambda: {
+        "key": os.getenv("WEB_ADS_MOBILE_TOP_BANNER_KEY", "d76c947d5bce357e40ad06c5443da535"),
+        "invoke_url": os.getenv("WEB_ADS_MOBILE_TOP_BANNER_INVOKE_URL", "https://cardinaltangible.com/d76c947d5bce357e40ad06c5443da535/invoke.js"),
+        "width": _safe_int(os.getenv("WEB_ADS_MOBILE_TOP_BANNER_WIDTH", "320"), 320),
+        "height": _safe_int(os.getenv("WEB_ADS_MOBILE_TOP_BANNER_HEIGHT", "50"), 50),
+    })
+    ads_mobile_bottom_banner: dict = field(default_factory=lambda: {
+        "key": os.getenv("WEB_ADS_MOBILE_BOTTOM_BANNER_KEY", "360f27a067037e47107b2b725150e7b5"),
+        "invoke_url": os.getenv("WEB_ADS_MOBILE_BOTTOM_BANNER_INVOKE_URL", "https://cardinaltangible.com/360f27a067037e47107b2b725150e7b5/invoke.js"),
+        "width": _safe_int(os.getenv("WEB_ADS_MOBILE_BOTTOM_BANNER_WIDTH", "300"), 300),
+        "height": _safe_int(os.getenv("WEB_ADS_MOBILE_BOTTOM_BANNER_HEIGHT", "250"), 250),
+    })
     auto_cleanup_minutes: int = _safe_int(os.getenv("AUTO_CLEANUP_MINUTES", "30"), 30)
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
     admin_user_ids: set[int] = field(

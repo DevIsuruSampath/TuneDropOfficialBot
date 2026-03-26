@@ -12,14 +12,27 @@
     <div class="ad-slot ad-slot-desktop">
       <script>
         atOptions = {
-          'key' : 'f0c271d2355a57b29b6b278209294341',
+          'key' : '{{ ads_desktop_top_banner.key }}',
           'format' : 'iframe',
-          'height' : 90,
-          'width' : 728,
+          'height' : {{ ads_desktop_top_banner.height }},
+          'width' : {{ ads_desktop_top_banner.width }},
           'params' : {}
         };
       </script>
-      <script src="https://cardinaltangible.com/f0c271d2355a57b29b6b278209294341/invoke.js"></script>
+      <script src="{{ ads_desktop_top_banner.invoke_url }}"></script>
+    </div>
+
+    <div class="ad-slot ad-slot-mobile">
+      <script>
+        atOptions = {
+          'key' : '{{ ads_mobile_top_banner.key }}',
+          'format' : 'iframe',
+          'height' : {{ ads_mobile_top_banner.height }},
+          'width' : {{ ads_mobile_top_banner.width }},
+          'params' : {}
+        };
+      </script>
+      <script src="{{ ads_mobile_top_banner.invoke_url }}"></script>
     </div>
     {% endif %}
 
@@ -79,40 +92,27 @@
     <div class="ad-slot ad-slot-desktop">
       <script>
         atOptions = {
-          'key' : '360f27a067037e47107b2b725150e7b5',
+          'key' : '{{ ads_desktop_inline_banner.key }}',
           'format' : 'iframe',
-          'height' : 250,
-          'width' : 300,
+          'height' : {{ ads_desktop_inline_banner.height }},
+          'width' : {{ ads_desktop_inline_banner.width }},
           'params' : {}
         };
       </script>
-      <script src="https://cardinaltangible.com/360f27a067037e47107b2b725150e7b5/invoke.js"></script>
+      <script src="{{ ads_desktop_inline_banner.invoke_url }}"></script>
     </div>
 
     <div class="ad-slot ad-slot-mobile">
       <script>
         atOptions = {
-          'key' : '360f27a067037e47107b2b725150e7b5',
+          'key' : '{{ ads_mobile_bottom_banner.key }}',
           'format' : 'iframe',
-          'height' : 250,
-          'width' : 300,
+          'height' : {{ ads_mobile_bottom_banner.height }},
+          'width' : {{ ads_mobile_bottom_banner.width }},
           'params' : {}
         };
       </script>
-      <script src="https://cardinaltangible.com/360f27a067037e47107b2b725150e7b5/invoke.js"></script>
-    </div>
-
-    <div class="ad-slot ad-slot-mobile">
-      <script>
-        atOptions = {
-          'key' : 'd76c947d5bce357e40ad06c5443da535',
-          'format' : 'iframe',
-          'height' : 50,
-          'width' : 320,
-          'params' : {}
-        };
-      </script>
-      <script src="https://cardinaltangible.com/d76c947d5bce357e40ad06c5443da535/invoke.js"></script>
+      <script src="{{ ads_mobile_bottom_banner.invoke_url }}"></script>
     </div>
     {% endif %}
   </div>
