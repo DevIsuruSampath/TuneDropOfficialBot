@@ -55,7 +55,6 @@ async def init_database():
         await database["active_tasks"].create_index([("user_id", ASCENDING)])
         await database["active_tasks"].create_index("created_at", expireAfterSeconds=86400)
         await database["cached_songs"].create_index([("cache_key", ASCENDING)], unique=True)
-        await database["cached_playlists"].create_index([("source", ASCENDING)], unique=True)
 
         _client = client
         _database = database
