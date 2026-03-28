@@ -37,12 +37,15 @@ _MIN_EDIT_INTERVAL = 3.0
 _FLOOD_BACKOFF_MAX = 60.0
 
 
+def _is_message_not_modified(exc: Exception) -> bool:
+    return "message is not modified" in str(exc).lower()
+
+
 def _is_message_deleted(exc: Exception) -> bool:
     msg = str(exc).lower()
     return (
         "message to edit not found" in msg
         or "message can't be edited" in msg
-        or "message is not modified" in msg
     )
 
 
@@ -107,15 +110,20 @@ class DownloadTask:
                     )
                     self._last_edit_time = time.monotonic()
                     self._flood_penalty = 0
-                except FloodWait as e:
-                    self._flood_penalty = e.value + 1.0
-                    logger.warning("FloodWait %ds for task %s", e.value, self.task_id)
-                    self._pending = (current_text, current_pm)
                 except Exception as exc:
+                    if _is_message_not_modified(exc):
+                        # Text is already current — treat as success
+                        self._last_edit_time = time.monotonic()
+                        continue
                     if _is_message_deleted(exc):
                         self._edit_dead = True
                         break
-                    logger.debug("Failed to update status for task %s: %s", self.task_id, exc)
+                    if isinstance(exc, FloodWait):
+                        self._flood_penalty = exc.value + 1.0
+                        logger.warning("FloodWait %ds for task %s", exc.value, self.task_id)
+                        self._pending = (current_text, current_pm)
+                    else:
+                        logger.debug("Failed to update status for task %s: %s", self.task_id, exc)
         finally:
             self._updating = False
 

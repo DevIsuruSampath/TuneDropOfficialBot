@@ -1171,7 +1171,16 @@ class MusicDownloadManager:
             if total_match:
                 total = int(total_match.group(1))
                 spotdl_state["total"] = total
-                return build_playlist_status(DownloadPhase.DOWNLOADING, done=0, total=total)
+                return build_playlist_status(DownloadPhase.SEARCHING, done=0, total=total)
+
+        if "saved" in lowered and "song" in lowered:
+            saved_match = re.search(r"saved\s+(\d+)\s+song", lowered)
+            if saved_match and spotdl_state is not None:
+                spotdl_state["done"] += int(saved_match.group(1))
+                return build_playlist_status(DownloadPhase.SEARCHING, done=spotdl_state["done"], total=spotdl_state["total"])
+
+        if "rate" in lowered and "limit" in lowered:
+            return build_progress_message(DownloadPhase.SEARCHING, details="Rate limited, retrying...")
 
         if "download" in lowered:
             # Extract song name from spotdl "Downloaded" lines
