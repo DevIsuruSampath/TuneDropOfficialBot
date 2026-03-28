@@ -1180,7 +1180,7 @@ class MusicDownloadManager:
                 return build_playlist_status(DownloadPhase.SEARCHING, done=spotdl_state["done"], total=spotdl_state["total"])
 
         if "rate" in lowered and "limit" in lowered:
-            return build_progress_message(DownloadPhase.SEARCHING, details="Rate limited, retrying...")
+            return None  # Don't spam status with rate limit messages
 
         if "download" in lowered:
             # Extract song name from spotdl "Downloaded" lines
