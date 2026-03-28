@@ -127,6 +127,7 @@ class TaskRegistry:
     def __init__(self) -> None:
         self._tasks: dict[str, DownloadTask] = {}
         self._user_tasks: dict[int, set[str]] = {}
+        self._user_active_sources: dict[int, str] = {}
         self._queue: deque[str] = deque()
         self._pending_starts: dict[str, tuple[Client, Message, Any, DownloadCallable]] = {}
         self._failed: dict[int, tuple[Any, DownloadCallable, Client]] = {}
@@ -233,6 +234,15 @@ class TaskRegistry:
         user_id = request.user_id
         await self._cleanup_user_tasks(user_id)
 
+        # Prevent duplicate jobs for the same source per user
+        active_source = self._user_active_sources.get(user_id)
+        if active_source and active_source == request.source:
+            await message.reply_text(
+                "⏳ <b>Already processing this playlist.</b>\n\nUse <code>/cancel</code> to stop it first.",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
         task_id = self._generate_task_id()
         cancel_kb = _cancel_keyboard(task_id)
 
@@ -256,6 +266,7 @@ class TaskRegistry:
         if user_id not in self._user_tasks:
             self._user_tasks[user_id] = set()
         self._user_tasks[user_id].add(task_id)
+        self._user_active_sources[user_id] = request.source
 
         if is_queued:
             self._queue.append(task_id)
@@ -338,6 +349,7 @@ class TaskRegistry:
             await task.update(build_error_message("Download failed. Try again."), parse_mode=ParseMode.HTML)
         finally:
             self._tasks.pop(task.task_id, None)
+            self._user_active_sources.pop(task.user_id, None)
             if task.user_id in self._user_tasks:
                 self._user_tasks[task.user_id].discard(task.task_id)
                 if not self._user_tasks[task.user_id]:

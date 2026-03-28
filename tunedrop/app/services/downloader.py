@@ -96,7 +96,30 @@ class SubprocessFailure(RuntimeError):
 class MusicDownloadManager:
     async def __call__(self, app: Client, message: Message, task: DownloadTask) -> None:
         request: DownloadRequest = task.request
-        await task.update(build_progress_message(DownloadPhase.SEARCHING, details=request.source), parse_mode=ParseMode.HTML)
+
+        # Playlist cache check — skip all processing if already cached
+        if request.input_type in {InputType.SPOTIFY_PLAYLIST, InputType.YOUTUBE_MUSIC_PLAYLIST}:
+            cached_playlist = await song_cache.get_cached_playlist(request.source)
+            if cached_playlist and cached_playlist.get("download_link"):
+                link = cached_playlist["download_link"]
+                track_count = cached_playlist.get("track_count", 0)
+                file_size = cached_playlist.get("file_size", 0)
+                eta_seconds = estimate_download_time(file_size, settings.download_speed_kbps)
+                task._reply_markup = None
+                await task.update(
+                    build_playlist_completion(
+                        track_count=track_count,
+                        file_size=file_size,
+                        download_link=link,
+                        estimated_time=eta_seconds,
+                        speed_kbps=settings.download_speed_kbps,
+                        cached_count=cached_playlist.get("cached_count", 0),
+                        downloaded_count=cached_playlist.get("downloaded_count", 0),
+                        failed_count=cached_playlist.get("failed_count", 0),
+                    ),
+                    parse_mode=ParseMode.HTML,
+                )
+                return
 
         if request.input_type in {InputType.SPOTIFY_TRACK, InputType.SEARCH, InputType.SPOTIFY_PLAYLIST}:
             await self._handle_spotify_or_search(app, message, task)
@@ -440,6 +463,16 @@ class MusicDownloadManager:
                 ),
                 parse_mode=ParseMode.HTML,
             )
+            # Cache the playlist for instant re-serving
+            await song_cache.cache_playlist(
+                source=task.request.source,
+                download_link=link,
+                track_count=len(tracks),
+                file_size=upload.file_size,
+                cached_count=cached_count,
+                downloaded_count=len(newly_downloaded),
+                failed_count=failed_count,
+            )
         finally:
             await cleanup_paths([playlist_dir, zip_path])
 
@@ -641,6 +674,16 @@ class MusicDownloadManager:
                     failed_count=failed_count,
                 ),
                 parse_mode=ParseMode.HTML,
+            )
+            # Cache the playlist for instant re-serving
+            await song_cache.cache_playlist(
+                source=task.request.source,
+                download_link=link,
+                track_count=len(tracks),
+                file_size=upload.file_size,
+                cached_count=cached_count,
+                downloaded_count=len(newly_downloaded),
+                failed_count=failed_count,
             )
         finally:
             await cleanup_paths([playlist_dir, zip_path])

@@ -51,6 +51,46 @@ def generate_cache_key(source: str, input_type: InputType, yt_info: dict[str, An
 class SongCache:
     """Manages cached songs in a private Telegram channel."""
 
+    async def get_cached_playlist(self, source: str) -> dict[str, Any] | None:
+        """Look up a cached playlist by its source URL.
+
+        Returns the cached playlist document or None.
+        """
+        if not source or not settings.song_cache_channel_id:
+            return None
+        db = get_database()
+        return await db["cached_playlists"].find_one({"source": source})
+
+    async def cache_playlist(
+        self,
+        source: str,
+        download_link: str,
+        track_count: int,
+        file_size: int,
+        cached_count: int = 0,
+        downloaded_count: int = 0,
+        failed_count: int = 0,
+    ) -> None:
+        """Store a processed playlist's download link so it can be served instantly next time."""
+        if not source or not settings.song_cache_channel_id:
+            return
+        db = get_database()
+        await db["cached_playlists"].update_one(
+            {"source": source},
+            {"$set": {
+                "source": source,
+                "download_link": download_link,
+                "track_count": track_count,
+                "file_size": file_size,
+                "cached_count": cached_count,
+                "downloaded_count": downloaded_count,
+                "failed_count": failed_count,
+                "created_at": datetime.now(timezone.utc),
+            }},
+            upsert=True,
+        )
+        logger.info("Cached playlist: %s (%d tracks)", source, track_count)
+
     async def get_cached_song(self, cache_key: str) -> dict[str, Any] | None:
         """Look up a cached song by its cache key. Returns the document or None."""
         if not cache_key or not settings.song_cache_channel_id:
