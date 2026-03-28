@@ -8,6 +8,8 @@ Production-oriented Telegram music downloader bot built with Pyrofork, `spotdl`,
 - **Single tracks**: Sent as MP3 with title, artist, duration, thumbnail, and inline download/share buttons
 - **Playlists**: Downloaded, packaged as ZIP, uploaded to a private channel, and returned as a web download link
 - **Song cache**: Tracks cached in a Telegram channel and MongoDB — repeated requests skip re-downloading
+- **Playlist cache**: Entire playlists cached by URL — repeat requests return the download link instantly without re-processing
+- **Duplicate job prevention**: Same playlist URL cannot be processed twice simultaneously per user
 - **Progress system**: Single-message status editing with structured templates, FloodWait handling, 3-second edit throttle, and real download speed from yt-dlp
 - **Playlist progress**: Stage-aware progress (cache check, download, package, upload) with cached/downloaded/failed counters
 - **Task queue**: Concurrent task limit with queue position display and per-user cancellation
@@ -188,7 +190,7 @@ python -m tunedrop --mode web
 1. User sends a URL or `/song` query
 2. Bot resolves input type (Spotify track, Spotify playlist, YouTube track, YouTube playlist, or search)
 3. For single tracks: check cache → download (spotdl or yt-dlp) → embed cover art → send MP3 or upload link
-4. For playlists: check cache per track → batch download uncached tracks → embed cover art → create ZIP → upload to channel → generate download link
+4. For playlists: check playlist cache → if cached, return instantly → otherwise check cache per track → batch download uncached tracks → embed cover art → create ZIP → upload to channel → generate download link → cache playlist for next request
 
 ### Status/Progress System
 
@@ -257,12 +259,16 @@ The download page features:
 
 ## Caching
 
-Songs are cached in a Telegram channel and indexed in MongoDB:
+Songs and playlists are cached in a Telegram channel and indexed in MongoDB:
 - **Spotify tracks**: keyed by Spotify track ID
 - **YouTube tracks**: keyed by YouTube video ID (works with `youtube.com`, `youtu.be`, and `music.youtube.com`)
 - **Search queries**: keyed by the resolved YouTube video ID after first download
+- **Playlists**: keyed by source URL — repeat requests for the same playlist return the cached download link instantly
+- **Playlist cache**: Entire playlists cached by source URL — repeat requests served instantly from MongoDB
 - Batch cache lookups for playlists to minimize DB queries
 - Failed cache sends fall back to direct delivery
+- Duplicate job prevention: same playlist URL cannot be processed concurrently per user
+- Duplicate job prevention: same playlist URL cannot be processed concurrently for the same user
 
 ## Security
 
