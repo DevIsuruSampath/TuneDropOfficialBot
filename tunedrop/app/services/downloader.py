@@ -1165,19 +1165,20 @@ class MusicDownloadManager:
         if "processing query" in lowered:
             return build_progress_message(DownloadPhase.SEARCHING)
 
-        # Track total song count from "Found X songs" line
+        # Track total song count from "Found X songs" line — show static text, not a counter
+        # spotdl save doesn't emit per-track output, so a counter would jump 0/64 → 64/64
         if spotdl_state is not None:
             total_match = re.search(r"found\s+(\d+)\s+song", lowered)
             if total_match:
                 total = int(total_match.group(1))
                 spotdl_state["total"] = total
-                return build_playlist_status(DownloadPhase.SEARCHING, done=0, total=total)
+                return build_progress_message(DownloadPhase.SEARCHING, details=f"Found {total} tracks, looking up...")
 
         if "saved" in lowered and "song" in lowered:
             saved_match = re.search(r"saved\s+(\d+)\s+song", lowered)
             if saved_match and spotdl_state is not None:
                 spotdl_state["done"] += int(saved_match.group(1))
-                return build_playlist_status(DownloadPhase.SEARCHING, done=spotdl_state["done"], total=spotdl_state["total"])
+                return None  # No UI update — next phase (CHECKING_CACHE) has real per-track progress
 
         if "rate" in lowered and "limit" in lowered:
             return None  # Don't spam status with rate limit messages
