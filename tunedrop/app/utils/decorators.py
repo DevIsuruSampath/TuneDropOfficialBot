@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from functools import wraps
 from typing import Any
@@ -13,9 +14,8 @@ logger = logging.getLogger(__name__)
 
 Handler = Callable[..., Awaitable[Any]]
 
-_seen_keys: set[int] = set()
+_seen_keys: OrderedDict[int, None] = OrderedDict()
 _seen_max = 500
-_evict_batch = 100
 
 
 def _msg_key(message: Message) -> int:
@@ -30,12 +30,11 @@ def once_per_message(handler: Handler) -> Handler:
         if key in _seen_keys:
             logger.debug("once_per_message: deduped message %d in chat %d", message.id, message.chat.id)
             return None
-        _seen_keys.add(key)
-        if len(_seen_keys) > _seen_max:
-            # Evict oldest batch instead of clearing all keys
-            evict = sorted(_seen_keys)[:_evict_batch]
-            for k in evict:
-                _seen_keys.discard(k)
+        _seen_keys[key] = None
+        _seen_keys.move_to_end(key)
+        # Evict oldest entries when over capacity
+        while len(_seen_keys) > _seen_max:
+            _seen_keys.popitem(last=False)
         return await handler(_, message, *args, **kwargs)
 
     return wrapper  # type: ignore[return-value]
@@ -43,11 +42,17 @@ def once_per_message(handler: Handler) -> Handler:
 
 def admin_only(handler: Handler) -> Handler:
     @wraps(handler)
-    async def wrapper(_, message: Message, *args: Any, **kwargs: Any) -> Any:
-        user = message.from_user
+    async def wrapper(_, update, *args: Any, **kwargs: Any) -> Any:
+        user = update.from_user
         if not user or user.id not in settings.admin_user_ids:
-            await message.reply_text("You are not allowed to use this command.")
+            if hasattr(update, "reply_text"):
+                await update.reply_text("You are not allowed to use this command.")
+            else:
+                try:
+                    await update.answer("Not allowed.", show_alert=True)
+                except Exception:
+                    pass
             return None
-        return await handler(_, message, *args, **kwargs)
+        return await handler(_, update, *args, **kwargs)
 
     return wrapper  # type: ignore[return-value]

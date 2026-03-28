@@ -21,7 +21,10 @@ def _base_ytdlp_opts() -> dict[str, Any]:
         "socket_timeout": 30,
     }
     if settings.ytdlp_cookie_file:
-        opts["cookiefile"] = settings.ytdlp_cookie_file
+        from pathlib import Path
+        cookie_path = Path(settings.ytdlp_cookie_file)
+        if cookie_path.is_file() and cookie_path.stat().st_size > 0:
+            opts["cookiefile"] = settings.ytdlp_cookie_file
     return opts
 
 

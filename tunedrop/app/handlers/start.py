@@ -24,20 +24,24 @@ def register(app: Client) -> None:
     @app.on_callback_query(filters.regex("^show_help$"))
     async def help_callback(_, callback_query):
         await callback_query.answer()
+        msg = callback_query.message
         try:
-            await callback_query.message.edit_text(HELP_TEXT, parse_mode=ParseMode.HTML)
+            await msg.edit_text(HELP_TEXT, parse_mode=ParseMode.HTML)
         except Exception:
-            await callback_query.message.reply_text(HELP_TEXT, parse_mode=ParseMode.HTML)
+            if msg:
+                await msg.reply_text(HELP_TEXT, parse_mode=ParseMode.HTML)
 
     @app.on_callback_query(filters.regex("^show_search$"))
     async def search_callback(_, callback_query):
         await callback_query.answer()
+        text = (
+            "<b>Search</b>\n\n"
+            "Type <code>/song</code> <i>name</i>\n\n"
+            "<i>e.g. /song Blinding Lights</i>"
+        )
+        msg = callback_query.message
         try:
-            await callback_query.message.edit_text(
-                "<b>Search</b>\n\n"
-                "Type <code>/song</code> <i>name</i>\n\n"
-                "<i>e.g. /song Blinding Lights</i>",
-                parse_mode=ParseMode.HTML,
-            )
+            await msg.edit_text(text, parse_mode=ParseMode.HTML)
         except Exception:
-            pass
+            if msg:
+                await msg.reply_text(text, parse_mode=ParseMode.HTML)

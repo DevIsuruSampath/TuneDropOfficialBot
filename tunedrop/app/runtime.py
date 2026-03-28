@@ -3,7 +3,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import fcntl
+import logging
 import os
+import shutil
+
+logger = logging.getLogger(__name__)
 
 from tunedrop.app.core.database import close_database, init_database
 from tunedrop.app.core.client import create_bot_client, register_bot_commands, register_handlers
@@ -15,6 +19,25 @@ def configure_runtime() -> None:
     settings.ensure_directories()
     settings.validate()
     setup_logging()
+
+
+def _cleanup_temp_dirs() -> None:
+    """Remove orphaned temp directories, ZIPs, and playlists from previous runs."""
+    for base_dir in (settings.temp_dir, settings.zip_dir, settings.playlists_dir):
+        if not base_dir.exists():
+            continue
+        removed = 0
+        for entry in base_dir.iterdir():
+            try:
+                if entry.is_dir():
+                    shutil.rmtree(entry, ignore_errors=True)
+                else:
+                    entry.unlink(missing_ok=True)
+                removed += 1
+            except Exception:
+                pass
+        if removed:
+            logger.info("Cleaned up %d orphaned items from %s", removed, base_dir.name)
 
 
 def _acquire_pid_lock() -> int:
@@ -77,6 +100,7 @@ async def run_web_server() -> None:
 async def run() -> None:
     configure_runtime()
     await init_database()
+    _cleanup_temp_dirs()
     try:
         bot_task = asyncio.create_task(run_bot())
         web_task = asyncio.create_task(run_web_server())
@@ -89,6 +113,8 @@ async def run() -> None:
             await asyncio.gather(*pending, return_exceptions=True)
     finally:
         await close_database()
+        from tunedrop.app.utils.ffmpeg_utils import close_shared_client
+        await close_shared_client()
 
 
 def start() -> None:

@@ -17,9 +17,14 @@ class UploadedFile:
     file_size: int
 
 
-async def upload_zip_to_storage(app: Client, zip_path: Path, caption: str) -> UploadedFile:
+async def upload_zip_to_storage(app: Client, zip_path: Path, caption: str, chat_id: int | None = None) -> UploadedFile:
+    target_chat_id = chat_id or settings.private_channel_id
+    if not target_chat_id:
+        raise RuntimeError("No storage channel configured. Set PRIVATE_CHANNEL_ID or pass chat_id.")
+    if not zip_path.exists():
+        raise FileNotFoundError(f"ZIP file not found: {zip_path}")
     message: Message = await app.send_document(
-        chat_id=settings.private_channel_id,
+        chat_id=target_chat_id,
         document=str(zip_path),
         file_name=zip_path.name,
         caption=caption,

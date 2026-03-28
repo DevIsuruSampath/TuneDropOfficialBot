@@ -4,6 +4,7 @@ import asyncio
 import contextlib
 import logging
 import secrets
+import time
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -11,12 +12,18 @@ from typing import Any, Awaitable, Callable
 
 from pymongo import UpdateOne
 from pyrogram import Client
+from pyrogram.errors import FloodWait
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from tunedrop.app.core.database import get_database
 from pyrogram.enums import ParseMode
 
-from tunedrop.app.utils.ui_utils import build_error_message, build_retry_keyboard
+from tunedrop.app.utils.ui_utils import (
+    DownloadPhase,
+    build_error_message,
+    build_progress_message,
+    build_retry_keyboard,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -25,6 +32,18 @@ logger = logging.getLogger(__name__)
 DownloadCallable = Callable[[Client, Message, "DownloadTask"], Awaitable[None]]
 
 _RETRY_MARKUP = build_retry_keyboard()
+
+_MIN_EDIT_INTERVAL = 3.0
+_FLOOD_BACKOFF_MAX = 60.0
+
+
+def _is_message_deleted(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return (
+        "message to edit not found" in msg
+        or "message can't be edited" in msg
+        or "message is not modified" in msg
+    )
 
 
 def _cancel_keyboard(task_id: str) -> InlineKeyboardMarkup:
@@ -48,8 +67,13 @@ class DownloadTask:
     _last_markup: InlineKeyboardMarkup | None = field(default=None, repr=False)
     _pending: tuple[str, str | None] | None = field(default=None, repr=False)
     _updating: bool = field(default=False, repr=False)
+    _last_edit_time: float = field(default=0.0, repr=False)
+    _flood_penalty: float = field(default=0.0, repr=False)
+    _edit_dead: bool = field(default=False, repr=False)
 
     async def update(self, text: str, parse_mode: str | None = None) -> None:
+        if self._edit_dead:
+            return
         if text == self.last_text and self._reply_markup is self._last_markup:
             return
         self._pending = (text, parse_mode)
@@ -60,6 +84,20 @@ class DownloadTask:
             while self._pending is not None:
                 current_text, current_pm = self._pending
                 self._pending = None
+
+                # Time-based throttle
+                now = time.monotonic()
+                elapsed = now - self._last_edit_time
+                if elapsed < _MIN_EDIT_INTERVAL:
+                    await asyncio.sleep(_MIN_EDIT_INTERVAL - elapsed)
+
+                # FloodWait backoff
+                if self._flood_penalty > 0:
+                    wait = min(self._flood_penalty, _FLOOD_BACKOFF_MAX)
+                    logger.warning("FloodWait backoff: %.1fs for task %s", wait, self.task_id)
+                    await asyncio.sleep(wait)
+                    self._flood_penalty = 0
+
                 self.last_text = current_text
                 self._last_markup = self._reply_markup
                 try:
@@ -67,8 +105,17 @@ class DownloadTask:
                         current_text, disable_web_page_preview=True,
                         reply_markup=self._reply_markup, parse_mode=current_pm,
                     )
-                except Exception:
-                    logger.debug("Failed to update status message for task %s", self.task_id, exc_info=True)
+                    self._last_edit_time = time.monotonic()
+                    self._flood_penalty = 0
+                except FloodWait as e:
+                    self._flood_penalty = e.value + 1.0
+                    logger.warning("FloodWait %ds for task %s", e.value, self.task_id)
+                    self._pending = (current_text, current_pm)
+                except Exception as exc:
+                    if _is_message_deleted(exc):
+                        self._edit_dead = True
+                        break
+                    logger.debug("Failed to update status for task %s: %s", self.task_id, exc)
         finally:
             self._updating = False
 
@@ -141,10 +188,13 @@ class TaskRegistry:
         for i, task_id in enumerate(self._queue):
             task = self._tasks.get(task_id)
             if task and not task.cancelled():
-                await task.update(
-                    f"<b>Queued</b>\nPosition: #{i + 1}",
-                    parse_mode=ParseMode.HTML,
-                )
+                try:
+                    await task.update(
+                        build_progress_message(DownloadPhase.QUEUED, details=f"Position: #{i + 1}"),
+                        parse_mode=ParseMode.HTML,
+                    )
+                except Exception:
+                    logger.debug("Failed to update queue position for task %s", task_id)
 
     async def _dequeue_next(self) -> None:
         while self._queue:
@@ -189,7 +239,7 @@ class TaskRegistry:
         is_queued = self.active_count >= settings.max_concurrent_tasks
 
         status_message = await message.reply_text(
-            "<b>Queued</b>" if is_queued else "<b>Starting...</b>",
+            build_progress_message(DownloadPhase.QUEUED) if is_queued else build_progress_message(DownloadPhase.SEARCHING),
             parse_mode=ParseMode.HTML,
         )
 
@@ -212,7 +262,7 @@ class TaskRegistry:
             self._pending_starts[task_id] = (app, message, request, runner)
             pos = self._queue_position(task_id)
             await task.update(
-                f"<b>Queued</b>\nPosition: #{pos}",
+                build_progress_message(DownloadPhase.QUEUED, details=f"Position: #{pos}"),
                 parse_mode=ParseMode.HTML,
             )
         else:
@@ -237,7 +287,7 @@ class TaskRegistry:
         is_queued = self.active_count >= settings.max_concurrent_tasks
 
         try:
-            text = "<b>Queued</b>" if is_queued else "<b>Retrying...</b>"
+            text = build_progress_message(DownloadPhase.QUEUED) if is_queued else build_progress_message(DownloadPhase.SEARCHING, details="Retrying...")
             await message.edit_text(text, reply_markup=cancel_kb, parse_mode=ParseMode.HTML)
         except Exception:
             return False
@@ -260,7 +310,7 @@ class TaskRegistry:
             self._pending_starts[task_id] = (app, message, request, runner)
             pos = self._queue_position(task_id)
             await task.update(
-                f"<b>Queued</b>\nPosition: #{pos}",
+                build_progress_message(DownloadPhase.QUEUED, details=f"Position: #{pos}"),
                 parse_mode=ParseMode.HTML,
             )
         else:
@@ -277,7 +327,7 @@ class TaskRegistry:
         except asyncio.CancelledError:
             task._reply_markup = None
             try:
-                await task.update("<b>Cancelled</b>", parse_mode=ParseMode.HTML)
+                await task.update(build_progress_message(DownloadPhase.CANCELLED), parse_mode=ParseMode.HTML)
             except asyncio.CancelledError:
                 pass
             raise
@@ -285,7 +335,7 @@ class TaskRegistry:
             logger.exception("Download task failed for user %s", task.user_id)
             self._failed[task.user_id] = (request, runner, app)
             task._reply_markup = _RETRY_MARKUP
-            await task.update(build_error_message(str(exc)), parse_mode=ParseMode.HTML)
+            await task.update(build_error_message("Download failed. Try again."), parse_mode=ParseMode.HTML)
         finally:
             self._tasks.pop(task.task_id, None)
             if task.user_id in self._user_tasks:
@@ -294,9 +344,12 @@ class TaskRegistry:
                     del self._user_tasks[task.user_id]
             try:
                 await self._persist()
-            except RuntimeError:
-                pass
-            await self._dequeue_next()
+            except Exception:
+                logger.exception("Failed to persist task state")
+            try:
+                await self._dequeue_next()
+            except Exception:
+                logger.exception("Failed to dequeue next task")
 
     async def cancel(self, task_id: str) -> bool:
         task = self._tasks.get(task_id)
@@ -306,8 +359,20 @@ class TaskRegistry:
         was_queued = self._is_queued(task_id)
 
         if was_queued:
-            self._queue.remove(task_id)
+            try:
+                self._queue.remove(task_id)
+            except ValueError:
+                pass  # Already dequeued by _dequeue_next
             self._pending_starts.pop(task_id, None)
+            self._tasks.pop(task_id, None)
+            if task.user_id in self._user_tasks:
+                self._user_tasks[task.user_id].discard(task_id)
+                if not self._user_tasks[task.user_id]:
+                    del self._user_tasks[task.user_id]
+            try:
+                await self._persist()
+            except Exception:
+                logger.exception("Failed to persist after cancel")
 
         task.cancel_event.set()
         if task.worker:

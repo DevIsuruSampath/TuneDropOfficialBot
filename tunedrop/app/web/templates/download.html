@@ -3,7 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#b5552d">
+  <meta name="description" content="{% if expired %}Download link expired{% else %}Download {{ file_name }}{% endif %}">
   <title>{% if expired %}Link Expired{% else %}Download {{ file_name }}{% endif %}</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎵</text></svg>">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -38,54 +41,42 @@
 
     {% if expired %}
     <main class="card expired">
+      <div class="card-icon">⏰</div>
       <p class="eyebrow">Telegram Music Downloader</p>
       <h1>Link Expired</h1>
       <p class="meta">This download link has expired (24-hour limit).</p>
-      <p class="meta">Go back to Telegram and click <b>Download</b> again to get a new link.</p>
+      <p class="meta hint">Go back to Telegram and tap <strong>Download</strong> again to get a new link.</p>
     </main>
     {% else %}
     <main class="card">
+      <div class="card-icon">🎵</div>
       <p class="eyebrow">Telegram Music Downloader</p>
       <h1>{{ file_name }}</h1>
-      <p class="meta">File size: {{ size_text }}</p>
-      <p class="meta">Estimated time at {{ speed_kbps }} KB/s: {{ estimated_time }}</p>
+      <div class="meta-grid">
+        <span class="meta-chip">
+          <span class="meta-chip-icon">📁</span>
+          {{ size_text }}
+        </span>
+        <span class="meta-chip">
+          <span class="meta-chip-icon">⚡</span>
+          ~{{ estimated_time }} at {{ speed_kbps }} KB/s
+        </span>
+      </div>
       <div class="countdown">
         <span class="countdown-label">Link expires in</span>
-        <span class="countdown-timer" id="timer">--:--:--</span>
+        <div class="countdown-digits" id="timer" data-expires="{{ expires_at }}">
+          <span class="digit-block" id="timer-h">--</span>
+          <span class="digit-sep">:</span>
+          <span class="digit-block" id="timer-m">--</span>
+          <span class="digit-sep">:</span>
+          <span class="digit-block" id="timer-s">--</span>
+        </div>
       </div>
-      <a class="button" href="{{ direct_link }}">Download</a>
+      <a class="button" href="{{ direct_link }}" id="dl-btn">
+        <span class="button-icon">⬇️</span>
+        Download
+      </a>
     </main>
-    <script>
-      (function () {
-        var expiresAt = new Date("{{ expires_at }}").getTime();
-        var timerEl = document.getElementById("timer");
-        var btnEl = document.querySelector(".button");
-
-        function pad(n) {
-          return n < 10 ? "0" + n : String(n);
-        }
-
-        function update() {
-          var diff = expiresAt - Date.now();
-          if (diff <= 0) {
-            timerEl.textContent = "00:00:00";
-            timerEl.classList.add("expired-timer");
-            if (btnEl) btnEl.style.display = "none";
-            return;
-          }
-          var h = Math.floor(diff / 3600000);
-          var m = Math.floor((diff % 3600000) / 60000);
-          var s = Math.floor((diff % 60000) / 1000);
-          timerEl.textContent = pad(h) + ":" + pad(m) + ":" + pad(s);
-
-          if (h < 1) timerEl.classList.add("warning");
-          requestAnimationFrame(update);
-        }
-
-        update();
-        setInterval(update, 1000);
-      })();
-    </script>
     {% endif %}
 
     {% if ads_enabled %}
@@ -115,6 +106,11 @@
       <script src="{{ ads_mobile_bottom_banner.invoke_url }}"></script>
     </div>
     {% endif %}
+
+    <footer class="footer">
+      <span>TuneDrop</span>
+    </footer>
   </div>
+  <script src="/static/main.js"></script>
 </body>
 </html>

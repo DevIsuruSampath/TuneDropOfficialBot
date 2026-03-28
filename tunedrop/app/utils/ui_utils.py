@@ -1,17 +1,23 @@
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from tunedrop.app.utils.time_utils import format_bytes, format_duration_mmss, format_seconds
 
 
-class DownloadPhase(Enum):
+class DownloadPhase(StrEnum):
+    QUEUED = "queued"
     SEARCHING = "searching"
+    CHECKING_CACHE = "checking_cache"
     DOWNLOADING = "downloading"
     CONVERTING = "converting"
+    PACKAGING = "packaging"
     UPLOADING = "uploading"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 def escape_html(text: str) -> str:
@@ -24,17 +30,26 @@ def build_progress_message(
     details: str | None = None,
     eta: float | None = None,
 ) -> str:
+    if phase == DownloadPhase.QUEUED:
+        lines = ["<b>⏳ Queued</b>"]
+        if details:
+            lines.append(f"<i>{escape_html(details)}</i>")
+        return "\n".join(lines)
+
     if phase == DownloadPhase.SEARCHING:
         lines = ["<b>🔍 Searching...</b>"]
         if details:
             lines.append(f"<i>{escape_html(details)}</i>")
         return "\n".join(lines)
 
-    if phase == DownloadPhase.UPLOADING:
-        return "<b>📤 Uploading...</b>"
+    if phase == DownloadPhase.CHECKING_CACHE:
+        lines = ["<b>🧠 Checking cache...</b>"]
+        if details:
+            lines.append(f"<i>{escape_html(details)}</i>")
+        return "\n".join(lines)
 
     if phase == DownloadPhase.DOWNLOADING:
-        lines = ["<b>⚙️ Downloading audio...</b>"]
+        lines = ["<b>⬇️ Downloading...</b>"]
         if percentage is not None:
             pct_str = f"{percentage:.0f}%"
             if eta is not None and eta > 0:
@@ -44,15 +59,31 @@ def build_progress_message(
             lines.append(f"<i>{escape_html(details)}</i>")
         return "\n".join(lines)
 
-    # CONVERTING phase
-    lines = ["<b>🔄 Converting audio...</b>"]
-    if details:
-        lines.append(f"<i>{escape_html(details)}</i>")
-    return "\n".join(lines)
+    if phase == DownloadPhase.CONVERTING:
+        lines = ["<b>🔄 Converting audio...</b>"]
+        if details:
+            lines.append(f"<i>{escape_html(details)}</i>")
+        return "\n".join(lines)
 
+    if phase == DownloadPhase.PACKAGING:
+        lines = ["<b>📦 Creating ZIP archive...</b>"]
+        if details:
+            lines.append(f"<i>{escape_html(details)}</i>")
+        return "\n".join(lines)
 
-def build_completion_message() -> str:
-    return "<b>✅ Ready</b>"
+    if phase == DownloadPhase.UPLOADING:
+        return "<b>📤 Uploading...</b>"
+
+    if phase == DownloadPhase.COMPLETED:
+        return "<b>✅ Ready</b>"
+
+    if phase == DownloadPhase.FAILED:
+        return "<b>❌ Failed</b>"
+
+    if phase == DownloadPhase.CANCELLED:
+        return "<b>🚫 Cancelled</b>"
+
+    return f"<b>{escape_html(phase.value)}</b>"
 
 
 def build_audio_caption(
@@ -81,21 +112,82 @@ def build_audio_keyboard(bot_username: str, download_url: str | None = None) -> 
     return InlineKeyboardMarkup(buttons)
 
 
+def build_playlist_status(
+    phase: DownloadPhase,
+    done: int,
+    total: int,
+    cached: int = 0,
+    failed: int = 0,
+) -> str:
+    """Build playlist progress message matching the structured template:
+
+    ⏳ Processing playlist...
+
+    Stage: Checking cache
+    Progress: 7/64
+    Cached: 7
+    """
+    _phase_label = {
+        DownloadPhase.SEARCHING: "Looking up",
+        DownloadPhase.CHECKING_CACHE: "Checking cache",
+        DownloadPhase.DOWNLOADING: "Downloading",
+        DownloadPhase.CONVERTING: "Converting audio",
+        DownloadPhase.PACKAGING: "Creating ZIP",
+        DownloadPhase.UPLOADING: "Uploading",
+    }
+    stage = _phase_label.get(phase, phase.value.capitalize())
+
+    lines = ["<b>⏳ Processing playlist...</b>", ""]
+    lines.append(f"Stage: <b>{stage}</b>")
+    if total > 0:
+        lines.append(f"Progress: <b>{done}/{total}</b>")
+    if cached > 0:
+        lines.append(f"Cached: {cached}")
+    if failed > 0:
+        lines.append(f"Failed: {failed}")
+    return "\n".join(lines)
+
+
 def build_playlist_completion(
     track_count: int,
     file_size: int,
     download_link: str,
     estimated_time: int,
     speed_kbps: float,
+    *,
+    cached_count: int = 0,
+    downloaded_count: int = 0,
+    failed_count: int = 0,
 ) -> str:
-    return "\n".join([
+    """Build playlist completion message matching the template:
+
+    ✅ Playlist ready
+
+    64 tracks • 361.93 MB
+    Cached: 12
+    Downloaded: 51
+    Failed: 1
+
+    https://tdrp.cc/generate/xxxx
+    """
+    lines = [
         "<b>✅ Playlist ready</b>",
         "",
-        f"<code>{track_count}</code> tracks · <code>{format_bytes(file_size)}</code>",
-        f"<i>~{format_seconds(estimated_time)} at {speed_kbps:.0f} KB/s</i>",
-        "",
-        f"<code>{download_link}</code>",
-    ])
+        f"<code>{track_count}</code> tracks  •  <code>{format_bytes(file_size)}</code>",
+    ]
+    if cached_count > 0 or downloaded_count > 0 or failed_count > 0:
+        lines.append("")
+        if downloaded_count > 0:
+            lines.append(f"Downloaded: {downloaded_count}")
+        if cached_count > 0:
+            lines.append(f"Cached: {cached_count}")
+        if failed_count > 0:
+            lines.append(f"Failed: {failed_count}")
+    lines.append("")
+    lines.append(f"<i>~{format_seconds(estimated_time)} at {speed_kbps:.0f} KB/s</i>")
+    lines.append("")
+    lines.append(f"<code>{download_link}</code>")
+    return "\n".join(lines)
 
 
 def build_error_message(error: str) -> str:

@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import logging
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any
+
+from pymongo.errors import DuplicateKeyError
 
 from tunedrop.app.core.database import get_database
 from tunedrop.app.core.config import settings
 from tunedrop.app.utils.time_utils import format_bytes
 
+
+logger = logging.getLogger(__name__)
 
 _LINK_TTL_HOURS = 24
 
@@ -15,12 +20,17 @@ _LINK_TTL_HOURS = 24
 class LinkStore:
     async def create_ref(self, payload: dict[str, Any]) -> str:
         """Create a persistent download reference (no expiry)."""
-        ref = secrets.token_urlsafe(12)
         db = get_database()
-        await db["download_refs"].insert_one(
-            {"ref": ref, **payload, "created_at": datetime.now(UTC)},
-        )
-        return ref
+        for _ in range(3):
+            ref = secrets.token_urlsafe(12)
+            try:
+                await db["download_refs"].insert_one(
+                    {"ref": ref, **payload, "created_at": datetime.now(UTC)},
+                )
+                return ref
+            except DuplicateKeyError:
+                continue
+        raise RuntimeError("Failed to generate unique download reference")
 
     async def resolve_ref(self, ref: str) -> str | None:
         """Resolve a persistent ref to a new 24-hour expiring link."""
@@ -36,29 +46,35 @@ class LinkStore:
         return await self.create_link(row["user_id"], payload)
 
     async def create_link(self, user_id: int, payload: dict[str, Any]) -> str:
-        token = secrets.token_urlsafe(16)
-        created_at = datetime.now(UTC)
-        expires_at = created_at + timedelta(hours=_LINK_TTL_HOURS)
-        link = f"{settings.download_base_url.rstrip('/')}/download/{token}"
         db = get_database()
-
-        await db["file_links"].insert_one(
-            {
-                "token": token,
-                "user_id": user_id,
-                "created_at": created_at,
-                "expires_at": expires_at,
-                **payload,
-            }
-        )
+        for _ in range(3):
+            token = secrets.token_urlsafe(16)
+            created_at = datetime.now(UTC)
+            expires_at = created_at + timedelta(hours=_LINK_TTL_HOURS)
+            link = f"{settings.download_base_url.rstrip('/')}/download/{token}"
+            try:
+                await db["file_links"].insert_one(
+                    {
+                        "token": token,
+                        "user_id": user_id,
+                        "created_at": created_at,
+                        "expires_at": expires_at,
+                        **payload,
+                    }
+                )
+            except DuplicateKeyError:
+                continue
+            break
+        else:
+            raise RuntimeError("Failed to generate unique download token")
 
         await db["user_files"].insert_one(
             {
                 "user_id": user_id,
                 "token": token,
-                "name": payload["file_name"],
-                "size": payload["file_size"],
-                "size_text": format_bytes(payload["file_size"]),
+                "name": payload.get("file_name", "download"),
+                "size": payload.get("file_size", 0),
+                "size_text": format_bytes(payload.get("file_size", 0)),
                 "link": link,
                 "created_at": created_at,
                 "expires_at": expires_at,

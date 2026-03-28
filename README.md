@@ -1,23 +1,21 @@
-# Telegram Music Downloader Bot
+# TuneDrop
 
-Production-oriented Telegram bot built with Pyrofork, `spotdl`, `yt-dlp`, FastAPI, and MongoDB. It accepts Spotify tracks and playlists, YouTube and YouTube Music URLs, and `/song` search queries. Single songs are delivered as MP3 files, while playlists are packaged as ZIP archives, uploaded to a private Telegram channel, and exposed through a simple download page.
+Production-oriented Telegram music downloader bot built with Pyrofork, `spotdl`, `yt-dlp`, FFmpeg, FastAPI, and MongoDB. Accepts Spotify tracks/playlists, YouTube/YouTube Music URLs, and `/song` search queries. Single tracks are delivered as MP3 files with embedded cover art; playlists are packaged as ZIP archives, uploaded to a private Telegram channel, and exposed through a styled download page with countdown timer.
 
 ## Features
 
-- Accepts:
-  - Spotify track URLs
-  - Spotify playlist URLs
-  - YouTube URLs
-  - YouTube Music URLs
-  - `/song <query>`
-- Sends single tracks as MP3 with title, artist, duration, and thumbnail when available
-- Downloads playlists, creates ZIP archives, uploads them to a private Telegram channel, and returns a web link
-- Shows progress updates during download and upload stages
-- Supports `/start`, `/help`, `/song`, `/myfiles`, `/cancel`
-- Tracks active tasks and lets users cancel their running download
-- Stores uploaded file metadata for later lookup and direct-link generation
-- Uses async handlers and background-friendly subprocess execution
-- Cleans temporary files after completion
+- **Input sources**: Spotify track URLs, Spotify playlists, YouTube URLs, YouTube Music URLs, `/song <query>` search
+- **Single tracks**: Sent as MP3 with title, artist, duration, thumbnail, and inline download/share buttons
+- **Playlists**: Downloaded, packaged as ZIP, uploaded to a private channel, and returned as a web download link
+- **Song cache**: Tracks cached in a Telegram channel and MongoDB — repeated requests skip re-downloading
+- **Progress system**: Single-message status editing with structured templates, FloodWait handling, and 3-second edit throttle
+- **Playlist progress**: Stage-aware progress (cache check, download, package, upload) with cached/downloaded/failed counters
+- **Task queue**: Concurrent task limit with queue position display and per-user cancellation
+- **Cover art**: Embedded in MP3 files from YouTube thumbnails via FFmpeg, with concurrent batch processing
+- **Download page**: FastAPI-served HTML with countdown timer, file size estimate, and configurable ad slots
+- **Commands**: `/start`, `/help`, `/song <query>`, `/myfiles`, `/cancel`
+- **Admin**: `/stats` command for bot metrics
+- **Cleanup**: Temporary files cleaned after each task
 
 ## Project Layout
 
@@ -54,8 +52,8 @@ Production-oriented Telegram bot built with Pyrofork, `spotdl`, `yt-dlp`, FastAP
 │       │   └── url_handler.py
 │       ├── services/
 │       │   ├── __init__.py
+│       │   ├── cache_service.py
 │       │   ├── downloader.py
-│       │   ├── file_utils.py
 │       │   ├── link_generator.py
 │       │   ├── metadata.py
 │       │   ├── progress.py
@@ -72,11 +70,13 @@ Production-oriented Telegram bot built with Pyrofork, `spotdl`, `yt-dlp`, FastAP
 │       │   ├── filters.py
 │       │   ├── helpers.py
 │       │   ├── time_utils.py
+│       │   ├── ui_utils.py
 │       │   └── validators.py
 │       └── web/
 │           ├── __init__.py
 │           ├── server.py
 │           ├── static/
+│           │   ├── main.js
 │           │   └── style.css
 │           └── templates/
 │               └── download.html
@@ -118,6 +118,7 @@ cp .env.example .env
 | `API_HASH` | Telegram API hash |
 | `BOT_TOKEN` | Bot token from BotFather |
 | `PRIVATE_CHANNEL_ID` | Private channel ID where the bot is admin |
+| `SONG_CACHE_CHANNEL_ID` | Channel for caching audio files |
 | `MONGODB_URI` | MongoDB connection string |
 | `TUNEDROP_DOMAIN` | Your public domain (e.g. `tunedrop.example.com`) |
 | `TRAEFIK_ACME_EMAIL` | Email for Let's Encrypt certificates |
@@ -178,24 +179,87 @@ python -m tunedrop --mode bot
 python -m tunedrop --mode web
 ```
 
-## How It Works
+## Architecture
 
-- Spotify tracks, playlists, and `/song` queries are downloaded through `spotdl`.
-- YouTube and YouTube Music URLs are downloaded through `yt-dlp` and converted to MP3 with FFmpeg.
-- Single tracks are uploaded directly to the user chat.
-- Playlist ZIP files are uploaded to the configured private channel.
-- Uploaded ZIP metadata, recent file history, and active task snapshots are stored in MongoDB.
-- The FastAPI web server exposes:
-  - a download page at `/download/{token}`
-  - a file endpoint at `/file/{token}` that resolves the Telegram file path through the Bot API
+### Download Flow
+
+1. User sends a URL or `/song` query
+2. Bot resolves input type (Spotify track, Spotify playlist, YouTube track, YouTube playlist, or search)
+3. For single tracks: check cache → download (spotdl or yt-dlp) → embed cover art → send MP3 or upload link
+4. For playlists: check cache per track → batch download uncached tracks → embed cover art → create ZIP → upload to channel → generate download link
+
+### Status/Progress System
+
+The bot uses a state-machine progress system with 10 phases:
+
+`QUEUED` → `SEARCHING` → `CHECKING_CACHE` → `DOWNLOADING` → `CONVERTING` → `PACKAGING` → `UPLOADING` → `COMPLETED`
+
+Error states: `FAILED`, `CANCELLED`
+
+All status updates go through a single `DownloadTask.update()` method that:
+- Enforces a 3-second minimum interval between Telegram API edits
+- Handles `FloodWait` errors with adaptive backoff (up to 60s)
+- Detects deleted messages and stops retrying
+- Deduplicates identical status text
+
+### Playlist Progress Template
+
+```
+⏳ Processing playlist...
+
+Stage: Downloading
+Progress: 18/64
+Cached: 7
+Failed: 1
+```
+
+### Playlist Completion Template
+
+```
+✅ Playlist ready
+
+64 tracks • 361.93 MB
+
+Downloaded: 51
+Cached: 12
+Failed: 1
+
+~5m 32s at 1024 KB/s
+
+https://tdrp.cc/generate/xxxx
+```
 
 ## Commands
 
-- `/start` - welcome message
+- `/start` - welcome message with inline buttons
 - `/help` - usage guide
 - `/song <name>` - search and download a song
 - `/myfiles` - list recently generated playlist links
 - `/cancel` - cancel current task
+- `/stats` - admin bot metrics
+
+## Web Server
+
+The FastAPI web server exposes:
+- `GET /download/{token}` — styled download page with file info, countdown timer, and download button
+- `GET /file/{token}` — streams the file from Telegram's servers with proper headers
+- `GET /generate/{ref}` — resolves a persistent reference to a 24-hour expiring download link
+- `GET /health` — health check endpoint
+
+The download page features:
+- Countdown timer to link expiration (24 hours)
+- Visual warning state when under 1 hour remaining
+- Auto-hide download button on expiration
+- Responsive design with optional ad slots (configurable via `.env`)
+
+## Caching
+
+Songs are cached in a Telegram channel and indexed in MongoDB:
+- **Spotify tracks**: keyed by Spotify track ID
+- **YouTube tracks**: keyed by YouTube video ID
+- **Search queries**: keyed by the resolved YouTube video ID after first download
+- Batch cache lookups for playlists to minimize DB queries
+- Failed cache sends fall back to direct delivery
 
 ## Notes
 

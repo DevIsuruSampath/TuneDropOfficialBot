@@ -1,12 +1,33 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 
 import ffmpeg
 import httpx
 
 MAX_THUMBNAIL_SIZE = 5 * 1024 * 1024  # 5 MB
+logger = logging.getLogger(__name__)
+
+_shared_client: httpx.AsyncClient | None = None
+
+
+async def _get_shared_client() -> httpx.AsyncClient:
+    global _shared_client
+    if _shared_client is None or _shared_client.is_closed:
+        _shared_client = httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=httpx.Timeout(connect=10, read=30, write=10, pool=10),
+        )
+    return _shared_client
+
+
+async def close_shared_client() -> None:
+    global _shared_client
+    if _shared_client is not None:
+        await _shared_client.aclose()
+        _shared_client = None
 
 
 def probe_audio(file_path: Path) -> dict:
@@ -18,7 +39,8 @@ async def async_probe_audio(file_path: Path) -> dict:
 
 
 async def extract_thumbnail_from_url(url: str, out_path: Path) -> Path | None:
-    async with httpx.AsyncClient(follow_redirects=True, timeout=30) as client:
+    client = await _get_shared_client()
+    try:
         async with client.stream("GET", url) as response:
             response.raise_for_status()
             size = 0
@@ -30,3 +52,6 @@ async def extract_thumbnail_from_url(url: str, out_path: Path) -> Path | None:
                 chunks.append(chunk)
             await asyncio.to_thread(out_path.write_bytes, b"".join(chunks))
             return out_path
+    except Exception:
+        logger.debug("Failed to download thumbnail from %s", url)
+        return None

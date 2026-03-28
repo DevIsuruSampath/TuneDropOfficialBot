@@ -27,10 +27,10 @@ async def ensure_clean_directory(path: Path) -> Path:
 
 def create_zip_archive(source_dir: Path, zip_path: Path) -> Path:
     zip_path.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as archive:
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
         for file_path in sorted(source_dir.rglob("*")):
-            if file_path.is_file():
-                archive.write(file_path, arcname=file_path.relative_to(source_dir))
+            if file_path.is_file() and not file_path.is_symlink():
+                archive.write(file_path, arcname=file_path.resolve().relative_to(source_dir.resolve()))
     return zip_path
 
 

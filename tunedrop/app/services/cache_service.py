@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from pyrogram import Client
-from pyrogram.enums import ParseMode
 from pyrogram.types import Message
 
 from tunedrop.app.core.config import settings
@@ -59,6 +58,19 @@ class SongCache:
         db = get_database()
         doc = await db["cached_songs"].find_one({"cache_key": cache_key})
         return doc
+
+    async def get_cached_songs_batch(self, cache_keys: list[str]) -> dict[str, dict[str, Any]]:
+        """Look up multiple cached songs at once. Returns {cache_key: doc}."""
+        if not settings.song_cache_channel_id or not cache_keys:
+            return {}
+        db = get_database()
+        cursor = db["cached_songs"].find({"cache_key": {"$in": cache_keys}})
+        results: dict[str, dict[str, Any]] = {}
+        async for doc in cursor:
+            key = doc.get("cache_key", "")
+            if key:
+                results[key] = doc
+        return results
 
     async def cache_song(
         self,

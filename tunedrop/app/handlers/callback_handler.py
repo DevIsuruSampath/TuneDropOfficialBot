@@ -25,7 +25,7 @@ def register(app: Client) -> None:
             await _safe_answer(callback_query, "Not available.", show_alert=True)
             return
 
-        task_id = callback_query.data.split(":", 1)[1] if ":" in callback_query.data else None
+        task_id = callback_query.data.split(":", 1)[1]
         if not task_id:
             await _safe_answer(callback_query, "Invalid task.", show_alert=True)
             return
@@ -38,10 +38,12 @@ def register(app: Client) -> None:
         cancelled = await task_registry.cancel(task_id)
         if cancelled:
             await _safe_answer(callback_query, "Cancelled!")
-            try:
-                await callback_query.message.edit_reply_markup(reply_markup=None)
-            except Exception:
-                pass
+            msg = callback_query.message
+            if msg:
+                try:
+                    await msg.edit_reply_markup(reply_markup=None)
+                except Exception:
+                    pass
         else:
             await _safe_answer(callback_query, "No active task.", show_alert=True)
 
@@ -52,8 +54,17 @@ def register(app: Client) -> None:
             await _safe_answer(callback_query, "Not available.", show_alert=True)
             return
 
-        retried = await task_registry.retry_download(client, callback_query.message, user.id)
+        msg = callback_query.message
+        if not msg:
+            await _safe_answer(callback_query, "Message unavailable.", show_alert=True)
+            return
+
+        retried = await task_registry.retry_download(client, msg, user.id)
         if not retried:
             await _safe_answer(callback_query, "Nothing to retry.", show_alert=True)
         else:
             await _safe_answer(callback_query, "Retrying!")
+            try:
+                await msg.edit_reply_markup(reply_markup=None)
+            except Exception:
+                pass

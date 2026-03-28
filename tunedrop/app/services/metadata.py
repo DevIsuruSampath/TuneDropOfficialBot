@@ -19,5 +19,9 @@ async def read_audio_metadata(file_path: Path, fallback_title: str = "Unknown Ti
     format_tags = probe.get("format", {}).get("tags", {})
     title = format_tags.get("title") or fallback_title
     artist = format_tags.get("artist") or fallback_artist
-    duration = int(float(probe.get("format", {}).get("duration", 0) or 0))
+    raw_duration = probe.get("format", {}).get("duration")
+    try:
+        duration = int(float(raw_duration))
+    except (TypeError, ValueError):
+        duration = 0
     return AudioMetadata(title=title, artist=artist, duration=duration)
