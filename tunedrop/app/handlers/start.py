@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import logging
+
 from pyrogram import Client, filters
 from pyrogram.enums import ParseMode
 
 from tunedrop.app.core.constants import HELP_TEXT, WELCOME_TEXT
 from tunedrop.app.utils.decorators import once_per_message
 from tunedrop.app.utils.ui_utils import build_welcome_keyboard
+
+logger = logging.getLogger(__name__)
 
 
 def register(app: Client) -> None:
@@ -28,6 +32,7 @@ def register(app: Client) -> None:
         try:
             await msg.edit_text(HELP_TEXT, parse_mode=ParseMode.HTML)
         except Exception:
+            logger.debug("Failed to edit help callback, falling back to reply", exc_info=True)
             if msg:
                 await msg.reply_text(HELP_TEXT, parse_mode=ParseMode.HTML)
 
@@ -43,5 +48,6 @@ def register(app: Client) -> None:
         try:
             await msg.edit_text(text, parse_mode=ParseMode.HTML)
         except Exception:
+            logger.debug("Failed to edit search callback, falling back to reply", exc_info=True)
             if msg:
                 await msg.reply_text(text, parse_mode=ParseMode.HTML)

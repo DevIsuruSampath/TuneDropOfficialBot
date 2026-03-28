@@ -4,7 +4,7 @@ from pyrogram import Client, filters
 
 from tunedrop.app.services.downloader import DownloadRequest, download_manager
 from tunedrop.app.services.progress import task_registry
-from tunedrop.app.utils.decorators import once_per_message
+from tunedrop.app.utils.decorators import once_per_message, rate_limit
 from tunedrop.app.utils.filters import music_input
 from tunedrop.app.utils.validators import classify_input, looks_like_url
 
@@ -16,6 +16,7 @@ _UNSUPPORTED_MSG = (
 
 def register(app: Client) -> None:
     @app.on_message(filters.text & ~filters.command(["start", "help", "song", "myfiles", "cancel"]) & music_input)
+    @rate_limit
     @once_per_message
     async def url_handler(client: Client, message):
         raw = (message.text or "").strip()

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 
 from yt_dlp import YoutubeDL
 
 from tunedrop.app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def _base_ytdlp_opts() -> dict[str, Any]:
@@ -68,4 +71,5 @@ def get_music_info(url: str) -> dict[str, Any]:
             "webpage_url": info.get("webpage_url"),
         }
     except Exception:
+        logger.exception("get_music_info failed for %s", url)
         return {}

@@ -44,14 +44,18 @@ async def extract_thumbnail_from_url(url: str, out_path: Path) -> Path | None:
         async with client.stream("GET", url) as response:
             response.raise_for_status()
             size = 0
-            chunks: list[bytes] = []
-            async for chunk in response.aiter_bytes(chunk_size=65536):
-                size += len(chunk)
-                if size > MAX_THUMBNAIL_SIZE:
-                    return None
-                chunks.append(chunk)
-            await asyncio.to_thread(out_path.write_bytes, b"".join(chunks))
-            return out_path
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(out_path, "wb") as f:
+                async for chunk in response.aiter_bytes(chunk_size=65536):
+                    size += len(chunk)
+                    if size > MAX_THUMBNAIL_SIZE:
+                        f.close()
+                        out_path.unlink(missing_ok=True)
+                        return None
+                    f.write(chunk)
+            if out_path.exists() and out_path.stat().st_size > 0:
+                return out_path
+            return None
     except Exception:
-        logger.debug("Failed to download thumbnail from %s", url)
+        logger.debug("Failed to download thumbnail from %s", url, exc_info=True)
         return None

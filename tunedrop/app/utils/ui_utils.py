@@ -29,6 +29,7 @@ def build_progress_message(
     percentage: float | None = None,
     details: str | None = None,
     eta: float | None = None,
+    speed_kbps: float | None = None,
 ) -> str:
     if phase == DownloadPhase.QUEUED:
         lines = ["<b>⏳ Queued</b>"]
@@ -52,9 +53,12 @@ def build_progress_message(
         lines = ["<b>⬇️ Downloading...</b>"]
         if percentage is not None:
             pct_str = f"{percentage:.0f}%"
+            parts = [pct_str]
+            if speed_kbps is not None and speed_kbps > 0:
+                parts.append(f"{speed_kbps:.0f} KB/s")
             if eta is not None and eta > 0:
-                pct_str += f"  ·  {format_seconds(int(eta))} left"
-            lines.append(f"<code>{pct_str}</code>")
+                parts.append(f"{format_seconds(int(eta))} left")
+            lines.append(f"<code>{'  ·  '.join(parts)}</code>")
         if details:
             lines.append(f"<i>{escape_html(details)}</i>")
         return "\n".join(lines)

@@ -19,7 +19,9 @@ SPOTIFY_TRACK_RE = re.compile(
 SPOTIFY_PLAYLIST_RE = re.compile(
     r"^https?://open\.spotify\.com/(?:intl-[^/]+/)?playlist/[A-Za-z0-9]+(?:\?.*)?$"
 )
-YOUTUBE_MUSIC_RE = re.compile(r"^https?://music\.youtube\.com/")
+YOUTUBE_RE = re.compile(
+    r"^https?://(?:www\.)?(?:music\.youtube\.com|youtube\.com|youtu\.be)/"
+)
 
 
 def classify_input(value: str) -> InputType:
@@ -28,7 +30,7 @@ def classify_input(value: str) -> InputType:
         return InputType.SPOTIFY_TRACK
     if SPOTIFY_PLAYLIST_RE.match(text):
         return InputType.SPOTIFY_PLAYLIST
-    if YOUTUBE_MUSIC_RE.match(text):
+    if YOUTUBE_RE.match(text):
         return InputType.YOUTUBE_MUSIC_PLAYLIST if "list=" in text else InputType.YOUTUBE_MUSIC_TRACK
     if text:
         return InputType.SEARCH

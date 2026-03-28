@@ -6,6 +6,8 @@ from urllib.parse import quote
 
 import logging
 
+import re
+
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
@@ -17,6 +19,15 @@ from tunedrop.app.services.link_generator import link_store
 from tunedrop.app.utils.time_utils import estimate_download_time, format_bytes, format_seconds
 
 logger = logging.getLogger(__name__)
+
+# Token format validation - secrets.token_urlsafe produces [A-Za-z0-9_-]
+_SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def _validate_token(token: str) -> None:
+    """Validate token format. Raises HTTPException if invalid."""
+    if not token or len(token) > 64 or not _SAFE_TOKEN_RE.match(token):
+        raise HTTPException(status_code=400, detail="Invalid token format")
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -66,8 +77,7 @@ def create_web_app() -> FastAPI:
 
     @app.get("/generate/{ref}")
     async def generate_download_link(ref: str):
-        if not ref or len(ref) > 64:
-            raise HTTPException(status_code=400, detail="Invalid reference")
+        _validate_token(ref)
         link = await link_store.resolve_ref(ref)
         if not link:
             raise HTTPException(status_code=404, detail="Download reference not found")
@@ -75,8 +85,7 @@ def create_web_app() -> FastAPI:
 
     @app.get("/download/{token}", response_class=HTMLResponse)
     async def download_page(request: Request, token: str):
-        if not token or len(token) > 64:
-            raise HTTPException(status_code=400, detail="Invalid token")
+        _validate_token(token)
         item = await link_store.get(token)
         if not item:
             raise HTTPException(status_code=404, detail="File not found")
@@ -113,8 +122,7 @@ def create_web_app() -> FastAPI:
 
     @app.get("/file/{token}")
     async def direct_file(token: str):
-        if not token or len(token) > 64:
-            raise HTTPException(status_code=400, detail="Invalid token")
+        _validate_token(token)
         item = await link_store.get(token)
         if not item:
             raise HTTPException(status_code=404, detail="File not found")

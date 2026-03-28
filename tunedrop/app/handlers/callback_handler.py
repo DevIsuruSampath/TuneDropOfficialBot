@@ -43,7 +43,7 @@ def register(app: Client) -> None:
                 try:
                     await msg.edit_reply_markup(reply_markup=None)
                 except Exception:
-                    pass
+                    logger.debug("Failed to clear reply_markup on cancel", exc_info=True)
         else:
             await _safe_answer(callback_query, "No active task.", show_alert=True)
 
@@ -67,4 +67,4 @@ def register(app: Client) -> None:
             try:
                 await msg.edit_reply_markup(reply_markup=None)
             except Exception:
-                pass
+                logger.debug("Failed to clear retry markup", exc_info=True)

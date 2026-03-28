@@ -26,6 +26,7 @@ from tunedrop.app.services.youtube_service import _base_ytdlp_opts, extract_info
 from tunedrop.app.services.zip_service import build_zip
 from tunedrop.app.utils.ffmpeg_utils import extract_thumbnail_from_url
 from tunedrop.app.utils.file_utils import (
+    check_disk_space,
     cleanup_paths,
     ensure_clean_directory,
     find_first_file,
@@ -1391,7 +1392,9 @@ class MusicDownloadManager:
                 downloaded = payload.get("downloaded_bytes") or 0
                 percent = (downloaded / total * 100) if total else 0
                 eta = payload.get("eta")  # seconds remaining from yt-dlp
-                text = build_progress_message(DownloadPhase.DOWNLOADING, percentage=percent, eta=eta)
+                speed = payload.get("speed")  # bytes/sec from yt-dlp
+                speed_kbps = (speed / 1024) if speed else None
+                text = build_progress_message(DownloadPhase.DOWNLOADING, percentage=percent, eta=eta, speed_kbps=speed_kbps)
                 last_progress_time[0] = now
                 asyncio.run_coroutine_threadsafe(task.update(text, parse_mode=ParseMode.HTML), loop)
 

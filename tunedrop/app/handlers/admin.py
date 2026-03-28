@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from pyrogram import Client, filters
 from pyrogram.enums import ParseMode
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -7,6 +9,9 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from tunedrop.app.core.config import settings
 from tunedrop.app.services.progress import task_registry
 from tunedrop.app.utils.decorators import admin_only, once_per_message
+
+
+logger = logging.getLogger(__name__)
 
 
 def _admin_keyboard() -> InlineKeyboardMarkup:
@@ -67,7 +72,7 @@ def register(app: Client) -> None:
         try:
             await callback_query.message.edit_text(text, reply_markup=_ads_keyboard(), parse_mode=ParseMode.HTML)
         except Exception:
-            pass
+            logger.debug("Failed to edit admin callback message", exc_info=True)
 
     @app.on_callback_query(filters.regex("^ads_(on|off)$"))
     @admin_only
@@ -79,7 +84,7 @@ def register(app: Client) -> None:
         try:
             await callback_query.message.edit_text(text, reply_markup=_ads_keyboard(), parse_mode=ParseMode.HTML)
         except Exception:
-            pass
+            logger.debug("Failed to edit admin callback message", exc_info=True)
 
     @app.on_callback_query(filters.regex("^back_admin$"))
     @admin_only
@@ -90,4 +95,4 @@ def register(app: Client) -> None:
                 "<b>Admin Panel</b>", reply_markup=_admin_keyboard(), parse_mode=ParseMode.HTML,
             )
         except Exception:
-            pass
+            logger.debug("Failed to edit admin callback message", exc_info=True)
