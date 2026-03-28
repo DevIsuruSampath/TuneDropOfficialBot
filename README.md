@@ -4,15 +4,17 @@ Production-oriented Telegram music downloader bot built with Pyrofork, `spotdl`,
 
 ## Features
 
-- **Input sources**: Spotify track URLs, Spotify playlists, YouTube URLs, YouTube Music URLs, `/song <query>` search
+- **Input sources**: Spotify track URLs, Spotify playlists, YouTube URLs (`youtube.com`, `youtu.be`, `music.youtube.com`), `/song <query>` search
 - **Single tracks**: Sent as MP3 with title, artist, duration, thumbnail, and inline download/share buttons
 - **Playlists**: Downloaded, packaged as ZIP, uploaded to a private channel, and returned as a web download link
 - **Song cache**: Tracks cached in a Telegram channel and MongoDB — repeated requests skip re-downloading
-- **Progress system**: Single-message status editing with structured templates, FloodWait handling, and 3-second edit throttle
+- **Progress system**: Single-message status editing with structured templates, FloodWait handling, 3-second edit throttle, and real download speed from yt-dlp
 - **Playlist progress**: Stage-aware progress (cache check, download, package, upload) with cached/downloaded/failed counters
 - **Task queue**: Concurrent task limit with queue position display and per-user cancellation
+- **Rate limiting**: Per-user request throttle (10 requests/60s) prevents abuse and spam
 - **Cover art**: Embedded in MP3 files from YouTube thumbnails via FFmpeg, with concurrent batch processing
 - **Download page**: FastAPI-served HTML with countdown timer, file size estimate, and configurable ad slots
+- **Security**: Token format validation on all web endpoints, security headers, path traversal protection
 - **Commands**: `/start`, `/help`, `/song <query>`, `/myfiles`, `/cancel`
 - **Admin**: `/stats` command for bot metrics
 - **Cleanup**: Temporary files cleaned after each task
@@ -201,6 +203,7 @@ All status updates go through a single `DownloadTask.update()` method that:
 - Handles `FloodWait` errors with adaptive backoff (up to 60s)
 - Detects deleted messages and stops retrying
 - Deduplicates identical status text
+- Shows real download speed and ETA from yt-dlp progress hooks
 
 ### Playlist Progress Template
 
@@ -256,10 +259,19 @@ The download page features:
 
 Songs are cached in a Telegram channel and indexed in MongoDB:
 - **Spotify tracks**: keyed by Spotify track ID
-- **YouTube tracks**: keyed by YouTube video ID
+- **YouTube tracks**: keyed by YouTube video ID (works with `youtube.com`, `youtu.be`, and `music.youtube.com`)
 - **Search queries**: keyed by the resolved YouTube video ID after first download
 - Batch cache lookups for playlists to minimize DB queries
 - Failed cache sends fall back to direct delivery
+
+## Security
+
+- **Rate limiting**: 10 requests per 60-second window per user on download triggers
+- **Token validation**: All web endpoints validate token format (base64url-safe) and length
+- **Security headers**: `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`
+- **Path traversal protection**: Telegram file paths are validated before use
+- **Deduplication**: `once_per_message` prevents duplicate handler invocations
+- **Admin-only commands**: `/stats`, `/admin`, `/ads` restricted to configured admin IDs
 
 ## Notes
 
