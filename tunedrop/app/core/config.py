@@ -32,6 +32,7 @@ class Settings:
     bot_token: str = os.getenv("BOT_TOKEN", "")
     private_channel_id: int = _safe_int(os.getenv("PRIVATE_CHANNEL_ID", ""), 0)
     song_cache_channel_id: int = _safe_int(os.getenv("SONG_CACHE_CHANNEL_ID", ""), 0)
+    bot_username: str = os.getenv("BOT_USERNAME", "")
     bot_session_name: str = os.getenv("BOT_SESSION_NAME", "music_downloader_bot")
     download_base_url: str = os.getenv(
         "DOWNLOAD_BASE_URL",
@@ -41,7 +42,10 @@ class Settings:
     web_port: int = _safe_int(os.getenv("WEB_PORT", "8080"), 8080)
     download_speed_kbps: float = _safe_float(os.getenv("DEFAULT_USER_SPEED_KBPS", "100"), 100.0)
     max_playlist_items: int = _safe_int(os.getenv("MAX_PLAYLIST_ITEMS", "100"), 100)
-    max_concurrent_tasks: int = _safe_int(os.getenv("MAX_CONCURRENT_TASKS", "1"), 1)
+    max_concurrent_tasks: int = _safe_int(os.getenv("MAX_CONCURRENT_TASKS", "10"), 10)
+    max_concurrent_tasks_per_user: int = _safe_int(os.getenv("MAX_CONCURRENT_TASKS_PER_USER", "1"), 1)
+    force_sub_enabled: bool = os.getenv("FORCE_SUB", "false").lower() in ("true", "1", "yes")
+    force_sub_channel_id: int = _safe_int(os.getenv("FORCE_SUB_ID", ""), 0)
     progress_update_interval: float = _safe_float(os.getenv("PROGRESS_UPDATE_INTERVAL", "2.5"), 2.5)
     spotdl_inactivity_timeout_seconds: float = _safe_float(os.getenv("SPOTDL_INACTIVITY_TIMEOUT_SECONDS", "180"), 180.0)
     ads_enabled: bool = os.getenv("ADS_ENABLED", "false").lower() in ("true", "1", "yes")
@@ -69,6 +73,7 @@ class Settings:
         "width": _safe_int(os.getenv("WEB_ADS_MOBILE_BOTTOM_BANNER_WIDTH", "300"), 300),
         "height": _safe_int(os.getenv("WEB_ADS_MOBILE_BOTTOM_BANNER_HEIGHT", "250"), 250),
     })
+    ads_smartlink_url: str = os.getenv("ADS_SMARTLINK_URL", "")
     auto_cleanup_minutes: int = _safe_int(os.getenv("AUTO_CLEANUP_MINUTES", "30"), 30)
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
     admin_user_ids: set[int] = field(
@@ -78,6 +83,7 @@ class Settings:
             if value.strip() and _safe_int(value.strip(), 0) > 0
         }
     )
+    welcome_image: str = os.getenv("WELCOME_IMAGE", "")
     spotify_cookie_file: str = os.getenv("SPOTDL_COOKIE_FILE", "")
     ytdlp_cookie_file: str = os.getenv("YTDLP_COOKIE_FILE", "")
     spotify_client_id: str = os.getenv("SPOTIFY_CLIENT_ID", "")
@@ -132,6 +138,8 @@ class Settings:
             raise RuntimeError("DEFAULT_USER_SPEED_KBPS must be greater than 0.")
         if self.max_concurrent_tasks <= 0:
             raise RuntimeError("MAX_CONCURRENT_TASKS must be greater than 0.")
+        if self.max_concurrent_tasks_per_user <= 0:
+            raise RuntimeError("MAX_CONCURRENT_TASKS_PER_USER must be greater than 0.")
         if self.max_playlist_items <= 0:
             raise RuntimeError("MAX_PLAYLIST_ITEMS must be greater than 0.")
         if self.progress_update_interval <= 0:

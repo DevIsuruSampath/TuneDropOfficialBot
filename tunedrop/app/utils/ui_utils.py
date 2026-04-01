@@ -121,15 +121,16 @@ def build_playlist_status(
     done: int,
     total: int,
     cached: int = 0,
+    downloading: int = 0,
     failed: int = 0,
 ) -> str:
-    """Build playlist progress message matching the structured template:
+    """Build playlist progress message.
 
-    ⏳ Processing playlist...
+    ⏳ Processing playlist
 
     Stage: Checking cache
-    Progress: 7/64
-    Cached: 7
+    Progress: 32/64
+    Cached: 20
     """
     _phase_label = {
         DownloadPhase.SEARCHING: "Looking up",
@@ -141,14 +142,19 @@ def build_playlist_status(
     }
     stage = _phase_label.get(phase, phase.value.capitalize())
 
-    lines = ["<b>⏳ Processing playlist...</b>", ""]
-    lines.append(f"Stage: <b>{stage}</b>")
+    # Clamp to prevent 65/64 overflow
+    done = min(done, total) if total > 0 else done
+
+    lines = ["<b>⏳ Processing playlist</b>", ""]
+    lines.append(f"📦 Stage: <b>{stage}</b>")
     if total > 0:
-        lines.append(f"Progress: <b>{done}/{total}</b>")
+        lines.append(f"📊 Progress: <b>{done}/{total}</b>")
     if cached > 0:
-        lines.append(f"Cached: {cached}")
+        lines.append(f"⚡ Cached: {cached}")
+    if downloading > 0:
+        lines.append(f"⬇️ Downloaded: {downloading}")
     if failed > 0:
-        lines.append(f"Failed: {failed}")
+        lines.append(f"❌ Failed: {failed}")
     return "\n".join(lines)
 
 
@@ -156,41 +162,32 @@ def build_playlist_completion(
     track_count: int,
     file_size: int,
     download_link: str,
-    estimated_time: int,
-    speed_kbps: float,
     *,
     cached_count: int = 0,
     downloaded_count: int = 0,
     failed_count: int = 0,
 ) -> str:
-    """Build playlist completion message matching the template:
+    """Build playlist completion message.
 
-    ✅ Playlist ready
+    ✅ Playlist Ready
 
-    64 tracks • 361.93 MB
-    Cached: 12
-    Downloaded: 51
-    Failed: 1
+    🎶 Tracks: 64
+    💾 Size: 361.93 MB
+    ⚡ Cached: 64
 
-    https://tdrp.cc/generate/xxxx
+    🔗 Download: https://tdrp.cc/generate/xxxx
     """
     lines = [
-        "<b>✅ Playlist ready</b>",
+        "<b>✅ Playlist Ready</b>",
         "",
-        f"<code>{track_count}</code> tracks  •  <code>{format_bytes(file_size)}</code>",
+        f"🎶 Tracks: <b>{track_count}</b>",
+        f"💾 Size: <b>{format_bytes(file_size)}</b>",
     ]
-    if cached_count > 0 or downloaded_count > 0 or failed_count > 0:
-        lines.append("")
-        if downloaded_count > 0:
-            lines.append(f"Downloaded: {downloaded_count}")
-        if cached_count > 0:
-            lines.append(f"Cached: {cached_count}")
-        if failed_count > 0:
-            lines.append(f"Failed: {failed_count}")
+    if cached_count > 0:
+        lines.append(f"⚡ Cached: {cached_count}")
+    lines.append(f"❌ Failed: {failed_count}")
     lines.append("")
-    lines.append(f"<i>~{format_seconds(estimated_time)} at {speed_kbps:.0f} KB/s</i>")
-    lines.append("")
-    lines.append(f"<code>{download_link}</code>")
+    lines.append(f"🔗 <a href=\"{download_link}\">Download</a>")
     return "\n".join(lines)
 
 
@@ -220,12 +217,14 @@ def build_large_file_message(
 
 def build_welcome_message() -> str:
     return "\n".join([
-        "<b>TuneDrop</b>",
+        "<b>🎵 Welcome to TuneDrop!</b>",
         "",
-        "<i>Download any song in seconds</i>",
+        "Download any song or playlist instantly.",
         "",
-        "Send a <b>Spotify</b> or <b>YouTube</b> link",
-        "or search with <code>/song</code> <i>name</i>",
+        "• Send a <b>Spotify</b> or <b>YouTube</b> link",
+        "• Use <code>/song</code> <i>name</i> to search",
+        "• Supports tracks, playlists & YouTube Music",
+        "• <b>320kbps</b> MP3 with album art",
         "",
         "<code>/help</code> · <code>/myfiles</code> · <code>/cancel</code>",
     ])
@@ -257,7 +256,26 @@ def build_welcome_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
+def build_back_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔙 Back", callback_data="back_to_start")],
+    ])
+
+
 def build_retry_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔁 Try Again", callback_data="retry")],
     ])
+
+
+def build_force_sub_message(channel_link: str) -> tuple[str, InlineKeyboardMarkup]:
+    """Return (text, markup) for force-subscription prompt."""
+    text = (
+        "<b>🔒 Subscription Required</b>\n\n"
+        "Join our channel to use TuneDrop.\n"
+        "After joining, send your request again."
+    )
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📢 Join Channel", url=channel_link)],
+    ])
+    return text, markup

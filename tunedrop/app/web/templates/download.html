@@ -3,114 +3,116 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#b5552d">
-  <meta name="description" content="{% if expired %}Download link expired{% else %}Download {{ file_name }}{% endif %}">
-  <title>{% if expired %}Link Expired{% else %}Download {{ file_name }}{% endif %}</title>
+  <meta name="theme-color" content="#08080a">
+  <meta name="description" content="{% if expired %}Download link expired{% else %}Download {{ file_name }} - TuneDrop{% endif %}">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{% if expired %}Link Expired - TuneDrop{% else %}Download {{ file_name }}{% endif %}</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎵</text></svg>">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="preload" as="style" href="/static/fonts/fonts.css">
+  <link rel="stylesheet" href="/static/fonts/fonts.css">
+  <link rel="stylesheet" href="/static/style.css?v=7">
 </head>
-<body>
+<body{% if ads_enabled %} class="ads-visible"{% endif %}>
   <div class="page-wrapper">
-    {% if ads_enabled %}
-    <div class="ad-slot ad-slot-desktop">
-      <script>
-        atOptions = {
-          'key' : '{{ ads_desktop_top_banner.key }}',
-          'format' : 'iframe',
-          'height' : {{ ads_desktop_top_banner.height }},
-          'width' : {{ ads_desktop_top_banner.width }},
-          'params' : {}
-        };
-      </script>
-      <script src="{{ ads_desktop_top_banner.invoke_url }}"></script>
-    </div>
-
-    <div class="ad-slot ad-slot-mobile">
-      <script>
-        atOptions = {
-          'key' : '{{ ads_mobile_top_banner.key }}',
-          'format' : 'iframe',
-          'height' : {{ ads_mobile_top_banner.height }},
-          'width' : {{ ads_mobile_top_banner.width }},
-          'params' : {}
-        };
-      </script>
-      <script src="{{ ads_mobile_top_banner.invoke_url }}"></script>
+    {% if ads_enabled and not expired %}
+    <!-- Top Sponsored Area -->
+    <div class="sponsored-area" id="sponsored-top">
+      <span class="sponsored-label">Sponsored</span>
+      <div class="sponsored-body">
+        <div class="ad-slot ad-slot-desktop" role="complementary" aria-label="Advertisement">
+          <iframe id="ad-desktop-top" data-ad-wrapper sandbox="allow-scripts allow-same-origin" srcdoc='<script>atOptions={key:"{{ ads_desktop_top_banner.key }}",format:"iframe",height:{{ ads_desktop_top_banner.height }},width:{{ ads_desktop_top_banner.width }},params:{}};</script><script src="{{ ads_desktop_top_banner.invoke_url }}"></script>' frameborder="0" scrolling="no" style="width:{{ ads_desktop_top_banner.width }}px;height:{{ ads_desktop_top_banner.height }}px;border:none;"></iframe>
+        </div>
+        <div class="ad-slot ad-slot-mobile" role="complementary" aria-label="Advertisement">
+          <iframe id="ad-mobile-top" data-ad-wrapper sandbox="allow-scripts allow-same-origin" srcdoc='<script>atOptions={key:"{{ ads_mobile_top_banner.key }}",format:"iframe",height:{{ ads_mobile_top_banner.height }},width:{{ ads_mobile_top_banner.width }},params:{}};</script><script src="{{ ads_mobile_top_banner.invoke_url }}"></script>' frameborder="0" scrolling="no" style="width:{{ ads_mobile_top_banner.width }}px;height:{{ ads_mobile_top_banner.height }}px;border:none;"></iframe>
+        </div>
+      </div>
+      <p class="sponsored-unavailable">Sponsored content is unavailable on this network</p>
     </div>
     {% endif %}
 
     {% if expired %}
     <main class="card expired">
-      <div class="card-icon">⏰</div>
-      <p class="eyebrow">Telegram Music Downloader</p>
+      <div class="card-icon" aria-hidden="true">⏰</div>
+      <p class="eyebrow">TuneDrop</p>
       <h1>Link Expired</h1>
       <p class="meta">This download link has expired (24-hour limit).</p>
       <p class="meta hint">Go back to Telegram and tap <strong>Download</strong> again to get a new link.</p>
     </main>
     {% else %}
     <main class="card">
-      <div class="card-icon">🎵</div>
-      <p class="eyebrow">Telegram Music Downloader</p>
+      <div class="card-icon" aria-hidden="true">🎵</div>
+      <p class="eyebrow">TuneDrop</p>
       <h1>{{ file_name }}</h1>
       <div class="meta-grid">
         <span class="meta-chip">
-          <span class="meta-chip-icon">📁</span>
+          <span class="meta-chip-icon" aria-hidden="true">📁</span>
           {{ size_text }}
         </span>
         <span class="meta-chip">
-          <span class="meta-chip-icon">⚡</span>
+          <span class="meta-chip-icon" aria-hidden="true">⚡</span>
           ~{{ estimated_time }} at {{ speed_kbps }} KB/s
         </span>
       </div>
       <div class="countdown">
         <span class="countdown-label">Link expires in</span>
-        <div class="countdown-digits" id="timer" data-expires="{{ expires_at }}">
+        <div class="countdown-digits" id="timer" data-expires="{{ expires_at }}" role="timer" aria-live="off">
           <span class="digit-block" id="timer-h">--</span>
-          <span class="digit-sep">:</span>
+          <span class="digit-sep" aria-hidden="true">:</span>
           <span class="digit-block" id="timer-m">--</span>
-          <span class="digit-sep">:</span>
+          <span class="digit-sep" aria-hidden="true">:</span>
           <span class="digit-block" id="timer-s">--</span>
         </div>
+        <div class="sr-only" id="timer-announce" aria-live="polite"></div>
       </div>
-      <a class="button" href="{{ direct_link }}" id="dl-btn">
-        <span class="button-icon">⬇️</span>
+      <a class="button" href="{{ direct_link }}" id="dl-btn"{% if ads_enabled and ads_smartlink_url %} data-smartlink="{{ ads_smartlink_url }}"{% endif %} download>
+        <span class="button-icon" aria-hidden="true">⬇️</span>
         Download
       </a>
     </main>
     {% endif %}
 
-    {% if ads_enabled %}
-    <div class="ad-slot ad-slot-desktop">
-      <script>
-        atOptions = {
-          'key' : '{{ ads_desktop_inline_banner.key }}',
-          'format' : 'iframe',
-          'height' : {{ ads_desktop_inline_banner.height }},
-          'width' : {{ ads_desktop_inline_banner.width }},
-          'params' : {}
-        };
-      </script>
-      <script src="{{ ads_desktop_inline_banner.invoke_url }}"></script>
-    </div>
-
-    <div class="ad-slot ad-slot-mobile">
-      <script>
-        atOptions = {
-          'key' : '{{ ads_mobile_bottom_banner.key }}',
-          'format' : 'iframe',
-          'height' : {{ ads_mobile_bottom_banner.height }},
-          'width' : {{ ads_mobile_bottom_banner.width }},
-          'params' : {}
-        };
-      </script>
-      <script src="{{ ads_mobile_bottom_banner.invoke_url }}"></script>
+    {% if ads_enabled and not expired %}
+    <!-- Bottom Sponsored Area -->
+    <div class="sponsored-area" id="sponsored-bottom">
+      <span class="sponsored-label">Sponsored</span>
+      <div class="sponsored-body">
+        <div class="ad-slot" role="complementary" aria-label="Advertisement">
+          <iframe id="ad-inline" data-ad-wrapper sandbox="allow-scripts allow-same-origin" srcdoc='<script>atOptions={key:"{{ ads_desktop_inline_banner.key }}",format:"iframe",height:{{ ads_desktop_inline_banner.height }},width:{{ ads_desktop_inline_banner.width }},params:{}};</script><script src="{{ ads_desktop_inline_banner.invoke_url }}"></script>' frameborder="0" scrolling="no" style="width:{{ ads_desktop_inline_banner.width }}px;height:{{ ads_desktop_inline_banner.height }}px;border:none;"></iframe>
+        </div>
+      </div>
+      <p class="sponsored-unavailable">Sponsored content is unavailable on this network</p>
     </div>
     {% endif %}
 
     <footer class="footer">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
       <span>TuneDrop</span>
     </footer>
   </div>
-  <script src="/static/main.js"></script>
+
+  {% if ads_enabled and not expired %}
+  <!-- Ad-blocker bait (hidden, ad blockers remove it) -->
+  <div id="ad-bait" class="ad-banner ads adsbox ad-placement ad_wrapper" style="position:absolute;left:-9999px;width:1px;height:1px;">&nbsp;</div>
+
+  <!-- Ad gate overlay -->
+  <div class="ad-gate" id="ad-gate">
+    <div class="ad-gate-card">
+      <div class="ad-gate-state" id="ad-gate-loading">
+        <div class="ad-gate-spinner"></div>
+        <p class="ad-gate-loading-text">Loading ads&hellip;</p>
+        <span class="ad-gate-loading-hint">Please wait <strong id="ad-gate-countdown">3</strong> seconds while we prepare your page.</span>
+      </div>
+      <div class="ad-gate-state" id="ad-gate-blocked">
+        <div class="ad-gate-icon" aria-hidden="true">🛡️</div>
+        <h2>Please disable VPN / Ad Blocker</h2>
+        <p class="ad-gate-text">We respect your privacy. Ads help us keep this service free and fast. Please disable VPN, proxy, private DNS, or ad blocker for this page, then reload.</p>
+        <p class="ad-gate-sub">Thank you for supporting our server.</p>
+        <button class="ad-gate-reload" id="ad-gate-reload">I disabled it &mdash; Reload page</button>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <script src="/static/main.js?v=7" defer></script>
 </body>
 </html>

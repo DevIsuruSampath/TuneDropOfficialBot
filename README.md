@@ -16,6 +16,7 @@ Production-oriented Telegram music downloader bot built with Pyrofork, `spotdl`,
 - **Cover art**: Embedded in MP3 files from YouTube thumbnails via FFmpeg, with concurrent batch processing
 - **Download page**: FastAPI-served HTML with countdown timer, file size estimate, and configurable ad slots
 - **Security**: Token format validation on all web endpoints, security headers, path traversal protection
+- **Welcome banner**: Custom banner image shown on `/start` (configurable via `WELCOME_IMAGE`)
 - **Commands**: `/start`, `/help`, `/song <query>`, `/myfiles`, `/cancel`
 - **Admin**: `/stats` command for bot metrics
 - **Cleanup**: Temporary files cleaned after each task
@@ -30,6 +31,7 @@ Production-oriented Telegram music downloader bot built with Pyrofork, `spotdl`,
 ├── Dockerfile
 ├── README.md
 ├── requirements.txt
+├── welcome.jpg
 ├── tunedrop/
 │   ├── __init__.py
 │   ├── __main__.py
@@ -126,6 +128,7 @@ cp .env.example .env
 | `TUNEDROP_DOMAIN` | Your public domain (e.g. `tunedrop.example.com`) |
 | `TRAEFIK_ACME_EMAIL` | Email for Let's Encrypt certificates |
 | `DOWNLOAD_BASE_URL` | Must match `TUNEDROP_DOMAIN` with `https://` |
+| `WELCOME_IMAGE` | Banner image for `/start` (local path like `welcome.jpg`, URL, or Telegram `file_id`) |
 
 3. Build and start all services:
 

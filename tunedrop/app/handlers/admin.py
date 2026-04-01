@@ -39,8 +39,8 @@ def register(app: Client) -> None:
     @once_per_message
     async def stats_handler(_, message):
         active = task_registry.active_count
-        users = len(task_registry._user_tasks)
-        await message.reply_text(f"Active tasks: {active}\nUsers: {users}")
+        queued = task_registry.queued_count
+        await message.reply_text(f"Active tasks: {active}\nQueued: {queued}")
 
     @app.on_message(filters.command("admin"))
     @admin_only
@@ -78,9 +78,15 @@ def register(app: Client) -> None:
     @admin_only
     async def ads_toggle_callback(_, callback_query):
         action = callback_query.data.split("_", 1)[1]
-        settings.ads_enabled = action == "on"
+        want_on = action == "on"
+        if settings.ads_enabled == want_on:
+            state = "ON" if want_on else "OFF"
+            await callback_query.answer(f"Ads are already {state}!", show_alert=True)
+            return
+        settings.ads_enabled = want_on
         state = "ON" if settings.ads_enabled else "OFF"
         text = f"<b>Ads</b>\n\nStatus: <code>{state}</code>"
+        await callback_query.answer(f"Ads turned {state}")
         try:
             await callback_query.message.edit_text(text, reply_markup=_ads_keyboard(), parse_mode=ParseMode.HTML)
         except Exception:

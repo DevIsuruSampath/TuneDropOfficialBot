@@ -101,29 +101,35 @@ class DownloadTask:
                     await asyncio.sleep(wait)
                     self._flood_penalty = 0
 
-                self.last_text = current_text
-                self._last_markup = self._reply_markup
                 try:
                     await self.status_message.edit_text(
                         current_text, disable_web_page_preview=True,
                         reply_markup=self._reply_markup, parse_mode=current_pm,
                     )
+                    self.last_text = current_text
+                    self._last_markup = self._reply_markup
                     self._last_edit_time = time.monotonic()
                     self._flood_penalty = 0
+                    logger.debug("Task %s: edit OK", self.task_id)
                 except Exception as exc:
                     if _is_message_not_modified(exc):
                         # Text is already current — treat as success
+                        self.last_text = current_text
+                        self._last_markup = self._reply_markup
                         self._last_edit_time = time.monotonic()
+                        logger.debug("Task %s: not modified", self.task_id)
                         continue
                     if _is_message_deleted(exc):
                         self._edit_dead = True
+                        logger.warning("Task %s: message deleted, stopping edits", self.task_id)
                         break
                     if isinstance(exc, FloodWait):
                         self._flood_penalty = exc.value + 1.0
                         logger.warning("FloodWait %ds for task %s", exc.value, self.task_id)
                         self._pending = (current_text, current_pm)
                     else:
-                        logger.debug("Failed to update status for task %s: %s", self.task_id, exc)
+                        # Don't update last_text — let the next call retry with the same text
+                        logger.warning("Task %s: edit FAILED: %s | text: %.60s", self.task_id, exc, current_text[:60])
         finally:
             self._updating = False
 
@@ -147,6 +153,10 @@ class TaskRegistry:
             if t.worker is not None and not t.worker.done()
         )
 
+    @property
+    def queued_count(self) -> int:
+        return len(self._queue)
+
     def _active_task_ids_for(self, user_id: int) -> set[str]:
         user_ids = self._user_tasks.get(user_id, set())
         return {
@@ -159,6 +169,18 @@ class TaskRegistry:
 
     def has_active(self, user_id: int) -> bool:
         return len(self._active_task_ids_for(user_id)) > 0
+
+    def _should_queue(self, user_id: int) -> bool:
+        """Check if a new task should be queued for this user.
+
+        Queues if either the per-user limit or global limit is reached.
+        """
+        from tunedrop.app.core.config import settings
+        if self.get_user_active_count(user_id) >= settings.max_concurrent_tasks_per_user:
+            return True
+        if self.active_count >= settings.max_concurrent_tasks:
+            return True
+        return False
 
     def pop_failed(self, user_id: int) -> tuple[Any, DownloadCallable, Client] | None:
         return self._failed.pop(user_id, None)
@@ -206,35 +228,53 @@ class TaskRegistry:
                     logger.debug("Failed to update queue position for task %s", task_id)
 
     async def _dequeue_next(self) -> None:
-        while self._queue:
-            task_id = self._queue[0]
-            task = self._tasks.get(task_id)
-            if not task:
-                self._queue.popleft()
-                self._pending_starts.pop(task_id, None)
-                continue
-            if task.cancelled():
-                self._queue.popleft()
-                self._pending_starts.pop(task_id, None)
-                self._tasks.pop(task_id, None)
-                if task.user_id in self._user_tasks:
-                    self._user_tasks[task.user_id].discard(task_id)
-                    if not self._user_tasks[task.user_id]:
-                        del self._user_tasks[task.user_id]
-                continue
+        """Start as many queued tasks as capacity allows."""
+        from tunedrop.app.core.config import settings
 
-            start_params = self._pending_starts.pop(task_id, None)
-            if not start_params:
-                self._queue.popleft()
-                continue
+        started = True
+        while started and self._queue:
+            started = False
+            remaining = list(self._queue)
+            for task_id in remaining:
+                task = self._tasks.get(task_id)
+                if not task:
+                    self._queue.remove(task_id)
+                    self._pending_starts.pop(task_id, None)
+                    started = True
+                    continue
+                if task.cancelled():
+                    self._queue.remove(task_id)
+                    self._pending_starts.pop(task_id, None)
+                    self._tasks.pop(task_id, None)
+                    if task.user_id in self._user_tasks:
+                        self._user_tasks[task.user_id].discard(task_id)
+                        if not self._user_tasks[task.user_id]:
+                            del self._user_tasks[task.user_id]
+                    started = True
+                    continue
 
-            app, message, request, runner = start_params
-            self._queue.popleft()
-            self._failed.pop(task.user_id, None)
-            task.worker = asyncio.create_task(self._run(app, message, task, request, runner))
-            await self._persist()
-            await self._update_queue_positions()
-            break
+                # Check if this task's user and global limits allow starting
+                if self._should_queue(task.user_id):
+                    continue
+
+                start_params = self._pending_starts.pop(task_id, None)
+                if not start_params:
+                    self._queue.remove(task_id)
+                    started = True
+                    continue
+
+                app, message, request, runner = start_params
+                self._queue.remove(task_id)
+                self._failed.pop(task.user_id, None)
+                task.worker = asyncio.create_task(self._run(app, message, task, request, runner))
+                started = True
+                break  # Re-evaluate from scratch after starting one
+
+            if not started:
+                break
+
+        await self._persist()
+        await self._update_queue_positions()
 
     async def start_download(self, app: Client, message: Message, request: Any, runner: DownloadCallable) -> None:
         from tunedrop.app.core.config import settings
@@ -254,7 +294,7 @@ class TaskRegistry:
         task_id = self._generate_task_id()
         cancel_kb = _cancel_keyboard(task_id)
 
-        is_queued = self.active_count >= settings.max_concurrent_tasks
+        is_queued = self._should_queue(user_id)
 
         status_message = await message.reply_text(
             build_progress_message(DownloadPhase.QUEUED) if is_queued else build_progress_message(DownloadPhase.SEARCHING),
@@ -303,7 +343,7 @@ class TaskRegistry:
         task_id = self._generate_task_id()
         cancel_kb = _cancel_keyboard(task_id)
 
-        is_queued = self.active_count >= settings.max_concurrent_tasks
+        is_queued = self._should_queue(user_id)
 
         try:
             text = build_progress_message(DownloadPhase.QUEUED) if is_queued else build_progress_message(DownloadPhase.SEARCHING, details="Retrying...")

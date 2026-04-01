@@ -26,7 +26,6 @@ from tunedrop.app.services.youtube_service import _base_ytdlp_opts, extract_info
 from tunedrop.app.services.zip_service import build_zip
 from tunedrop.app.utils.ffmpeg_utils import extract_thumbnail_from_url
 from tunedrop.app.utils.file_utils import (
-    check_disk_space,
     cleanup_paths,
     ensure_clean_directory,
     find_first_file,
@@ -55,6 +54,15 @@ _CONVERSION_TIMEOUT_BASE = 900  # minimum seconds for FFmpeg audio conversion
 _MAX_AUDIO_DURATION = 3 * 3600  # 3 hours
 _RESOLVE_FAILED = object()  # Sentinel: search resolution failed, not a cache hit
 _cached_bot_username: str | None = None
+
+
+def _build_display_name(artist: str, title: str) -> str:
+    """Build 'Artist - Title' string, skipping artist prefix if title already contains it."""
+    cleaned_artist = re.sub(r"\s+", "", artist).lower()
+    cleaned_title_start = re.sub(r"\s+", "", title[: len(artist) + 3]).lower()
+    if cleaned_title_start.startswith(cleaned_artist):
+        return title
+    return f"{artist} - {title}"
 
 
 @dataclass(slots=True)
@@ -204,7 +212,7 @@ class MusicDownloadManager:
                     audio_file_id, thumb_file_id = await song_cache.upload_to_cache_channel(
                         app, audio_file, metadata.title, metadata.artist, metadata.duration, metadata.thumbnail_path,
                     )
-                    file_name = f"{metadata.artist} - {metadata.title}.mp3"
+                    file_name = f"{_build_display_name(metadata.artist, metadata.title)}.mp3"
                     ref = await link_store.create_ref(
                         payload={
                             "user_id": task.user_id,
@@ -240,7 +248,7 @@ class MusicDownloadManager:
         playlist_dir = await ensure_clean_directory(settings.playlists_dir / safe_name)
         zip_path = settings.zip_dir / f"{safe_name}.zip"
         try:
-            await task.update(build_progress_message(DownloadPhase.SEARCHING, details="Looking up playlist..."), parse_mode=ParseMode.HTML)
+            await task.update("🔍 <b>Reading playlist...</b>", parse_mode=ParseMode.HTML)
 
             # Get individual track URLs from the playlist using spotdl
             track_urls = await self._get_spotify_playlist_track_urls(task, playlist_dir)
@@ -248,6 +256,7 @@ class MusicDownloadManager:
                 raise RuntimeError("Could not retrieve playlist tracks.")
 
             total = len(track_urls)
+            logger.info("Playlist has %d tracks, starting cache check", total)
             await task.update(
                 build_playlist_status(DownloadPhase.CHECKING_CACHE, done=0, total=total),
                 parse_mode=ParseMode.HTML,
@@ -273,13 +282,15 @@ class MusicDownloadManager:
                             track = await self._retrieve_cached_track(app, cached_map[cache_key], playlist_dir)
                             if track:
                                 cached_count += 1
-                                continue
-                        uncached_urls.append(url)
-                        if (cached_count + len(uncached_urls)) % 10 == 0:
+                            else:
+                                uncached_urls.append(url)
+                        else:
+                            uncached_urls.append(url)
+                        if i % 5 == 0 or i == total:
                             await task.update(
                                 build_playlist_status(
                                     DownloadPhase.CHECKING_CACHE,
-                                    done=cached_count + len(uncached_urls),
+                                    done=i,
                                     total=total,
                                     cached=cached_count,
                                 ),
@@ -294,7 +305,6 @@ class MusicDownloadManager:
             newly_downloaded: list[tuple[Path, str]] = []  # (path, spotify_url)
             failed_count = 0
             if uncached_urls:
-                cached_count = total - len(uncached_urls)
                 _BATCH_SIZE = 10
                 remaining_urls = list(uncached_urls)
 
@@ -311,6 +321,7 @@ class MusicDownloadManager:
                             task, chunk, batch_dir,
                             total_tracks=total,
                             done_offset=done_so_far,
+                            cached_count=cached_count,
                         )
                         downloaded_files = sorted(
                             (f for f in batch_dir.iterdir() if f.suffix.lower() == ".mp3" and f.is_file() and f.stat().st_size > 0),
@@ -425,14 +436,11 @@ class MusicDownloadManager:
                 },
             )
             link = f"{settings.download_base_url.rstrip('/')}/generate/{link}"
-            eta_seconds = estimate_download_time(upload.file_size, settings.download_speed_kbps)
             await task.update(
                 build_playlist_completion(
                     track_count=len(tracks),
                     file_size=upload.file_size,
                     download_link=link,
-                    estimated_time=eta_seconds,
-                    speed_kbps=settings.download_speed_kbps,
                     cached_count=cached_count,
                     downloaded_count=len(newly_downloaded),
                     failed_count=failed_count,
@@ -494,7 +502,7 @@ class MusicDownloadManager:
                     audio_file_id, thumb_file_id = await song_cache.upload_to_cache_channel(
                         app, audio_file, metadata.title, metadata.artist, metadata.duration, thumb_path,
                     )
-                    file_name = f"{metadata.artist} - {metadata.title}.mp3"
+                    file_name = f"{_build_display_name(metadata.artist, metadata.title)}.mp3"
                     ref = await link_store.create_ref(
                         payload={
                             "user_id": task.user_id,
@@ -549,7 +557,7 @@ class MusicDownloadManager:
                 cached_map: dict[str, dict[str, Any]] = {}
                 if yt_cache_keys:
                     cached_map = await song_cache.get_cached_songs_batch(yt_cache_keys)
-                for i, entry in enumerate(entries[:total]):
+                for i, entry in enumerate(entries[:total], 1):
                     if task.cancelled():
                         raise asyncio.CancelledError
                     yt_id = entry.get("id")
@@ -559,47 +567,89 @@ class MusicDownloadManager:
                             track = await self._retrieve_cached_track(app, cached_map[cache_key], playlist_dir)
                             if track:
                                 cached_count += 1
-                                continue
-                    uncached_entries.append(entry)
+                            else:
+                                uncached_entries.append(entry)
+                        else:
+                            uncached_entries.append(entry)
+                    else:
+                        uncached_entries.append(entry)
+                    if i % 5 == 0 or i == total:
+                        await task.update(
+                            build_playlist_status(
+                                DownloadPhase.CHECKING_CACHE,
+                                done=i,
+                                total=total,
+                                cached=cached_count,
+                            ),
+                            parse_mode=ParseMode.HTML,
+                        )
             else:
                 uncached_entries = list(entries[:total])
 
-            # Download uncached tracks individually
+            # Download uncached tracks concurrently (max 5 parallel)
             newly_downloaded: list[tuple[Path, dict[str, Any]]] = []
             failed_count = 0
-            for j, entry in enumerate(uncached_entries):
+            _download_concurrency = 5
+            _dl_sem = asyncio.Semaphore(_download_concurrency)
+            _completed_count = 0  # tracks finished (success or fail)
+            _progress_lock = asyncio.Lock()
+
+            async def _download_one(entry: dict[str, Any]) -> None:
+                nonlocal failed_count, _completed_count
                 if task.cancelled():
-                    raise asyncio.CancelledError
+                    return
                 yt_id = entry.get("id")
                 if not yt_id:
-                    continue
+                    return
                 yt_url = f"https://www.youtube.com/watch?v={yt_id}"
-                done = cached_count + j + 1
+                async with _dl_sem:
+                    if task.cancelled():
+                        return
+                    work_dir = await ensure_clean_directory(
+                        settings.temp_dir / f"yt_{task.user_id}_{_completed_count}_{int(time.time())}"
+                    )
+                    try:
+                        duration = int(entry.get("duration") or 0)
+                        audio_file, thumb_url, _ = await self._run_ytdlp_download(
+                            task, yt_url, work_dir, timeout=max(duration * 3 + 300, 600),
+                        )
+                        entry["_thumb_url"] = thumb_url
+                        dest = playlist_dir / sanitize_filename(f"{entry.get('title', 'Unknown')}.mp3")
+                        shutil.move(str(audio_file), str(dest))
+                        newly_downloaded.append((dest, entry))
+                    except Exception:
+                        logger.exception("Failed to download track: %s", entry.get("title"))
+                        async with _progress_lock:
+                            failed_count += 1
+                    finally:
+                        await cleanup_paths([work_dir])
+                        async with _progress_lock:
+                            _completed_count += 1
+                            done = cached_count + _completed_count
+                            if _completed_count % 2 == 0 or _completed_count == len(uncached_entries):
+                                await task.update(
+                                    build_playlist_status(
+                                        DownloadPhase.DOWNLOADING,
+                                        done=done,
+                                        total=total,
+                                        cached=cached_count,
+                                        failed=failed_count,
+                                    ),
+                                    parse_mode=ParseMode.HTML,
+                                )
+
+            if uncached_entries:
+                # Initial progress update
                 await task.update(
                     build_playlist_status(
                         DownloadPhase.DOWNLOADING,
-                        done=done,
+                        done=cached_count,
                         total=total,
                         cached=cached_count,
-                        failed=failed_count,
                     ),
                     parse_mode=ParseMode.HTML,
                 )
-                work_dir = await ensure_clean_directory(settings.temp_dir / f"yt_{task.user_id}_{j}_{int(time.time())}")
-                try:
-                    duration = int(entry.get("duration") or 0)
-                    audio_file, thumb_url, _ = await self._run_ytdlp_download(
-                        task, yt_url, work_dir, timeout=max(duration * 3 + 300, 600),
-                    )
-                    entry["_thumb_url"] = thumb_url
-                    dest = playlist_dir / sanitize_filename(f"{entry.get('title', 'Unknown')}.mp3")
-                    shutil.move(str(audio_file), str(dest))
-                    newly_downloaded.append((dest, entry))
-                except Exception:
-                    logger.exception("Failed to download track: %s", entry.get("title"))
-                    failed_count += 1
-                finally:
-                    await cleanup_paths([work_dir])
+                await asyncio.gather(*[_download_one(e) for e in uncached_entries])
 
             # Cache newly downloaded tracks
             if newly_downloaded:
@@ -627,14 +677,11 @@ class MusicDownloadManager:
                 },
             )
             link = f"{settings.download_base_url.rstrip('/')}/generate/{link}"
-            eta_seconds = estimate_download_time(upload.file_size, settings.download_speed_kbps)
             await task.update(
                 build_playlist_completion(
                     track_count=len(tracks),
                     file_size=upload.file_size,
                     download_link=link,
-                    estimated_time=eta_seconds,
-                    speed_kbps=settings.download_speed_kbps,
                     cached_count=cached_count,
                     downloaded_count=len(newly_downloaded),
                     failed_count=failed_count,
@@ -650,7 +697,7 @@ class MusicDownloadManager:
             file_id = cached["telegram_file_id"]
             title = cached.get("title", "Unknown")
             artist = cached.get("artist", "Unknown Artist")
-            file_name = sanitize_filename(f"{artist} - {title}.mp3")
+            file_name = sanitize_filename(f"{_build_display_name(artist, title)}.mp3")
             dest_path = dest_dir / file_name
             # Avoid filename collisions when multiple tracks share generic metadata
             if dest_path.exists():
@@ -694,7 +741,7 @@ class MusicDownloadManager:
             if cookie_path.is_file() and cookie_path.stat().st_size > 0:
                 cmd.extend(["--cookie-file", settings.spotify_cookie_file])
         try:
-            await self._run_subprocess(task, cmd, "spotdl")
+            await self._run_subprocess(task, cmd, "spotdl-save")
         except SubprocessFailure:
             logger.warning("spotdl save failed, falling back to full playlist download")
             return []
@@ -761,7 +808,7 @@ class MusicDownloadManager:
                         "chat_id": settings.song_cache_channel_id,
                         "message_id": 0,
                         "file_id": audio_file_id,
-                        "file_name": f"{metadata.artist} - {metadata.title}.mp3",
+                        "file_name": f"{_build_display_name(metadata.artist, metadata.title)}.mp3",
                         "file_size": file_size,
                     },
                 )
@@ -827,7 +874,7 @@ class MusicDownloadManager:
                         "chat_id": settings.song_cache_channel_id,
                         "message_id": 0,
                         "file_id": audio_file_id,
-                        "file_name": f"{metadata.artist} - {metadata.title}.mp3",
+                        "file_name": f"{_build_display_name(metadata.artist, metadata.title)}.mp3",
                         "file_size": file_size,
                     },
                 )
@@ -929,7 +976,7 @@ class MusicDownloadManager:
                 "chat_id": settings.song_cache_channel_id,
                 "message_id": 0,
                 "file_id": cached["telegram_file_id"],
-                "file_name": f"{cached['artist']} - {cached['title']}.mp3",
+                "file_name": f"{_build_display_name(cached['artist'], cached['title'])}.mp3",
                 "file_size": cached["file_size"],
             },
         )
@@ -1037,6 +1084,7 @@ class MusicDownloadManager:
         out_dir: Path,
         total_tracks: int = 0,
         done_offset: int = 0,
+        cached_count: int = 0,
         audio_providers: tuple[str, ...] = ("youtube-music", "youtube"),
     ) -> SubprocessResult:
         """Run spotdl download with multiple URLs in a single process to avoid per-track rate limiting."""
@@ -1066,7 +1114,8 @@ class MusicDownloadManager:
             cookie_path = Path(settings.spotify_cookie_file)
             if cookie_path.is_file() and cookie_path.stat().st_size > 0:
                 cmd.extend(["--cookie-file", settings.spotify_cookie_file])
-        return await self._run_subprocess(task, cmd, "spotdl", total_tracks=total_tracks, done_offset=done_offset)
+        extra = {"cached": cached_count} if cached_count > 0 else {}
+        return await self._run_subprocess(task, cmd, "spotdl", total_tracks=total_tracks, done_offset=done_offset, extra_state=extra)
 
     _FIRST_OUTPUT_TIMEOUT: int = 60
     _STALL_TIMEOUT: int = 90
@@ -1093,6 +1142,7 @@ class MusicDownloadManager:
         *,
         total_tracks: int = 0,
         done_offset: int = 0,
+        extra_state: dict[str, int] | None = None,
     ) -> SubprocessResult:
         logger.info("Running %s command: %s", name, shlex.join(cmd))
         process = await asyncio.create_subprocess_exec(
@@ -1106,7 +1156,7 @@ class MusicDownloadManager:
         error_lines: deque[str] = deque(maxlen=20)
         has_output = False
         spotdl_state: dict[str, int] = (
-            {"total": total_tracks, "done": done_offset} if name == "spotdl" else {}
+            {"total": total_tracks, "done": done_offset, **(extra_state or {})} if name in ("spotdl", "spotdl-save") else {}
         )
         try:
             while True:
@@ -1157,6 +1207,27 @@ class MusicDownloadManager:
 
     def _map_subprocess_progress(self, name: str, text: str, spotdl_state: dict[str, int] | None = None) -> str | None:
         lowered = text.lower()
+
+        # spotdl-save is metadata-only lookup — show reading progress per track
+        if name == "spotdl-save":
+            if "found" in lowered and "song" in lowered:
+                total_match = re.search(r"found\s+(\d+)\s+song", lowered)
+                if total_match and spotdl_state is not None:
+                    count = int(total_match.group(1))
+                    spotdl_state["total"] = count
+                    return build_progress_message(DownloadPhase.SEARCHING, details=f"Found {count} tracks")
+            if "rate" in lowered and "limit" in lowered:
+                return None
+            # Track per-song metadata lookup progress
+            if spotdl_state is not None and spotdl_state.get("total", 0) > 0:
+                if "download" in lowered or "processing" in lowered or "saved" in lowered:
+                    spotdl_state["done"] = min(spotdl_state.get("done", 0) + 1, spotdl_state["total"])
+                    return build_progress_message(
+                        DownloadPhase.SEARCHING,
+                        details=f"Reading {spotdl_state['done']}/{spotdl_state['total']}...",
+                    )
+            return None
+
         if name != "spotdl":
             if "download" in lowered or "converting" in lowered or "processing" in lowered:
                 return build_progress_message(DownloadPhase.DOWNLOADING)
@@ -1192,7 +1263,13 @@ class MusicDownloadManager:
                 done = spotdl_state["done"]
                 total = spotdl_state["total"]
                 if total > 0:
-                    return build_playlist_status(DownloadPhase.DOWNLOADING, done=done, total=total)
+                    done = min(done, total)  # prevent 65/64 overflow
+                    cached = spotdl_state.get("cached", 0)
+                    downloading = max(0, done - cached)
+                    return build_playlist_status(
+                        DownloadPhase.DOWNLOADING, done=done, total=total,
+                        cached=cached, downloading=downloading,
+                    )
                 if track:
                     return build_progress_message(DownloadPhase.DOWNLOADING, details=f"♫ {track}")
             elif track:

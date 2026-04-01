@@ -10,6 +10,7 @@ import re
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -58,6 +59,7 @@ def _get_client() -> httpx.AsyncClient:
 
 def create_web_app() -> FastAPI:
     app = FastAPI(title="Telegram Music Downloader", lifespan=_lifespan)
+    app.add_middleware(GZipMiddleware, minimum_size=500)
 
     # Security headers middleware
     @app.middleware("http")
@@ -67,6 +69,17 @@ def create_web_app() -> FastAPI:
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data: https://i.ytimg.com; "
+            "frame-src https://cardinaltangible.com; "
+            "connect-src 'self'"
+        )
+        # Cache static assets for 1 hour
+        if request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "public, max-age=3600"
         return response
 
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
@@ -74,6 +87,11 @@ def create_web_app() -> FastAPI:
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/", response_class=HTMLResponse)
+    async def landing_page(request: Request):
+        bot_link = f"https://t.me/{settings.bot_username}" if settings.bot_username else "#"
+        return templates.TemplateResponse("landing.html", {"request": request, "bot_link": bot_link, "site_url": settings.download_base_url})
 
     @app.get("/generate/{ref}")
     async def generate_download_link(ref: str):
@@ -100,6 +118,7 @@ def create_web_app() -> FastAPI:
                 "ads_desktop_inline_banner": settings.ads_desktop_inline_banner,
                 "ads_mobile_top_banner": settings.ads_mobile_top_banner,
                 "ads_mobile_bottom_banner": settings.ads_mobile_bottom_banner,
+                "ads_smartlink_url": settings.ads_smartlink_url,
             }
             return templates.TemplateResponse("download.html", context)
 
@@ -117,6 +136,7 @@ def create_web_app() -> FastAPI:
             "ads_desktop_inline_banner": settings.ads_desktop_inline_banner,
             "ads_mobile_top_banner": settings.ads_mobile_top_banner,
             "ads_mobile_bottom_banner": settings.ads_mobile_bottom_banner,
+            "ads_smartlink_url": settings.ads_smartlink_url,
         }
         return templates.TemplateResponse("download.html", context)
 

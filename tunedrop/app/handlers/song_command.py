@@ -5,12 +5,13 @@ from pyrogram.enums import ParseMode
 
 from tunedrop.app.services.downloader import DownloadRequest, download_manager
 from tunedrop.app.services.progress import task_registry
-from tunedrop.app.utils.decorators import once_per_message, rate_limit
+from tunedrop.app.utils.decorators import force_sub, once_per_message, rate_limit
 from tunedrop.app.utils.helpers import command_argument
 
 
 def register(app: Client) -> None:
     @app.on_message(filters.command("song"))
+    @force_sub
     @rate_limit
     @once_per_message
     async def song_handler(client: Client, message):
