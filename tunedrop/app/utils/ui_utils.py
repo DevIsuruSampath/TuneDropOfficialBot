@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from enum import StrEnum
 
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
@@ -79,7 +81,7 @@ def build_progress_message(
         return "<b>📤 Uploading...</b>"
 
     if phase == DownloadPhase.COMPLETED:
-        return "<b>✅ Ready</b>"
+        return None
 
     if phase == DownloadPhase.FAILED:
         return "<b>❌ Failed</b>"
@@ -166,17 +168,8 @@ def build_playlist_completion(
     cached_count: int = 0,
     downloaded_count: int = 0,
     failed_count: int = 0,
-) -> str:
-    """Build playlist completion message.
-
-    ✅ Playlist Ready
-
-    🎶 Tracks: 64
-    💾 Size: 361.93 MB
-    ⚡ Cached: 64
-
-    🔗 Download: https://tdrp.cc/generate/xxxx
-    """
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Build playlist completion message with download button."""
     lines = [
         "<b>✅ Playlist Ready</b>",
         "",
@@ -185,10 +178,15 @@ def build_playlist_completion(
     ]
     if cached_count > 0:
         lines.append(f"⚡ Cached: {cached_count}")
-    lines.append(f"❌ Failed: {failed_count}")
-    lines.append("")
-    lines.append(f"🔗 <a href=\"{download_link}\">Download</a>")
-    return "\n".join(lines)
+    if downloaded_count > 0:
+        lines.append(f"⬇️ Downloaded: {downloaded_count}")
+    if failed_count > 0:
+        lines.append(f"❌ Failed: {failed_count}")
+
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⬇️ Download", url=download_link)],
+    ])
+    return "\n".join(lines), markup
 
 
 def build_error_message(error: str) -> str:
@@ -217,33 +215,36 @@ def build_large_file_message(
 
 def build_welcome_message() -> str:
     return "\n".join([
-        "<b>🎵 Welcome to TuneDrop!</b>",
+        "<b>🎧 TuneDrop</b>",
         "",
-        "Download any song or playlist instantly.",
+        "Your music, instantly. 🚀",
+        "Download songs from <b>Spotify</b> &amp; <b>YouTube Music</b> in seconds — fast, high-quality, and hassle-free.",
         "",
-        "• Send a <b>Spotify</b> or <b>YouTube</b> link",
-        "• Use <code>/song</code> <i>name</i> to search",
-        "• Supports tracks, playlists & YouTube Music",
-        "• <b>320kbps</b> MP3 with album art",
+        "🎵 <b>Songs</b> — Send a link or use <code>/song</code> + name",
+        "📀 <b>Playlists</b> — Send a playlist URL, get a ZIP",
         "",
-        "<code>/help</code> · <code>/myfiles</code> · <code>/cancel</code>",
+        "👇 Tap a button to get started!",
     ])
 
 
 def build_help_message() -> str:
     return "\n".join([
-        "<b>How to use TuneDrop</b>",
+        "<b>📥 How to use</b>",
         "",
-        "<b>Download a song</b>",
-        "Send a Spotify / YouTube URL",
-        "or use <code>/song</code> <i>name</i>",
+        "🎵 <b>Songs</b>",
+        "• Send a Spotify or YouTube Music link",
+        "• Or type <code>/song</code> + song name",
+        "• Get high-quality audio in seconds!",
         "",
-        "<b>Download a playlist</b>",
-        "Send a playlist URL",
-        "all tracks packed into a ZIP",
+        "📀 <b>Playlists</b>",
+        "• Send a Spotify or YouTube Music playlist URL",
+        "• All tracks packed into a ZIP file",
         "",
-        "<code>/myfiles</code> recent downloads",
-        "<code>/cancel</code> stop current task",
+        "<b>Commands</b>",
+        "<code>/song</code> — search &amp; download",
+        "<code>/myfiles</code> — your recent downloads",
+        "<code>/cancel</code> — stop current task",
+        "<code>/donation</code> — support TuneDrop ⭐",
     ])
 
 
@@ -252,6 +253,9 @@ def build_welcome_keyboard() -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton("🎵 Search", callback_data="show_search"),
             InlineKeyboardButton("❓ Help", callback_data="show_help"),
+        ],
+        [
+            InlineKeyboardButton("⭐ Donate", callback_data="show_donation"),
         ],
     ])
 
@@ -266,6 +270,21 @@ def build_retry_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔁 Try Again", callback_data="retry")],
     ])
+
+
+def format_expiry(expires_at: datetime) -> str:
+    """Format a Pro expiry datetime into a human-readable string."""
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    now = datetime.now(UTC)
+    remaining = expires_at - now
+    if remaining.total_seconds() <= 0:
+        return "Expired"
+    days = remaining.days
+    if days > 0:
+        return f"{days} day{'s' if days != 1 else ''} left"
+    hours = int(remaining.total_seconds() // 3600)
+    return f"{hours} hour{'s' if hours != 1 else ''} left"
 
 
 def build_force_sub_message(channel_link: str) -> tuple[str, InlineKeyboardMarkup]:

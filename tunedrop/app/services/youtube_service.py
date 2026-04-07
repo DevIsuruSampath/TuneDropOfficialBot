@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 from typing import Any
 
 from yt_dlp import YoutubeDL
@@ -17,17 +18,25 @@ def _base_ytdlp_opts() -> dict[str, Any]:
         "keepvideo": False,
         "writethumbnail": False,
         "nopart": True,
-        "concurrent_fragment_downloads": 4,
+        "concurrent_fragment_downloads": 8,
         "http_chunk_size": 10485760,
         "retries": 3,
         "fragment_retries": 3,
         "socket_timeout": 30,
+        "throttledratelimit": 100000,
     }
     if settings.ytdlp_cookie_file:
-        from pathlib import Path
         cookie_path = Path(settings.ytdlp_cookie_file)
         if cookie_path.is_file() and cookie_path.stat().st_size > 0:
             opts["cookiefile"] = settings.ytdlp_cookie_file
+    # Use aria2c as external downloader if available
+    try:
+        import shutil
+        if shutil.which("aria2c"):
+            opts["downloader"] = "aria2c"
+            opts["downloader_args"] = ["aria2c:-x 16 -s 16 -j 16 -k 1M"]
+    except Exception:
+        pass
     return opts
 
 
@@ -44,32 +53,3 @@ async def extract_info(url: str) -> dict[str, Any]:
     return await asyncio.wait_for(asyncio.to_thread(_extract), timeout=settings.spotdl_inactivity_timeout_seconds)
 
 
-def get_music_info(url: str) -> dict[str, Any]:
-    """Fetch music metadata without downloading audio.
-
-    Returns a dict with id, title, duration, channel, artist, album,
-    thumbnail, and webpage_url — or an empty dict on failure.
-    """
-    opts = {
-        **_base_ytdlp_opts(),
-        "skip_download": True,
-        "noplaylist": True,
-    }
-    try:
-        with YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-        if not info:
-            return {}
-        return {
-            "id": info.get("id"),
-            "title": info.get("title"),
-            "duration": info.get("duration"),
-            "channel": info.get("channel") or info.get("uploader"),
-            "artist": info.get("artist"),
-            "album": info.get("album"),
-            "thumbnail": info.get("thumbnail"),
-            "webpage_url": info.get("webpage_url"),
-        }
-    except Exception:
-        logger.exception("get_music_info failed for %s", url)
-        return {}

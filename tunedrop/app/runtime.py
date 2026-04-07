@@ -10,9 +10,11 @@ import shutil
 logger = logging.getLogger(__name__)
 
 from tunedrop.app.core.database import close_database, init_database
-from tunedrop.app.core.client import create_bot_client, register_bot_commands, register_handlers
+from tunedrop.app.core.client import close_aiogram_bot, create_bot_client, register_bot_commands, register_handlers, set_pyrogram_client
 from tunedrop.app.core.config import settings
 from tunedrop.app.core.logging import setup_logging
+from tunedrop.app.utils.ffmpeg_utils import close_shared_client
+from tunedrop.app.web.server import create_web_app
 
 
 def configure_runtime() -> None:
@@ -68,11 +70,28 @@ def _acquire_pid_lock() -> int:
 async def run_bot() -> None:
     pid_fd = _acquire_pid_lock()
     try:
+        # Drain stale Bot API getUpdates before starting MTProto polling
+        from tunedrop.app.core.client import _drain_bot_api_updates
+        await _drain_bot_api_updates()
+
         bot = create_bot_client()
         register_handlers(bot)
+        set_pyrogram_client(bot)
         await bot.start()
         try:
             await register_bot_commands(bot)
+
+            async def _drain_loop():
+                """Periodically drain Bot API getUpdates to prevent MTProto conflicts."""
+                from tunedrop.app.core.client import _drain_bot_api_updates
+                while True:
+                    await asyncio.sleep(60)
+                    try:
+                        await _drain_bot_api_updates()
+                    except Exception:
+                        pass
+
+            asyncio.create_task(_drain_loop())
             await asyncio.Event().wait()
         finally:
             await bot.stop()
@@ -83,8 +102,6 @@ async def run_bot() -> None:
 
 async def run_web_server() -> None:
     import uvicorn
-
-    from tunedrop.app.web.server import create_web_app
 
     web_app = create_web_app()
     config = uvicorn.Config(
@@ -101,6 +118,11 @@ async def run() -> None:
     configure_runtime()
     await init_database()
     _cleanup_temp_dirs()
+
+    # Start background cache cleanup task
+    from tunedrop.app.utils.memory_cache import start_cleanup_task
+    asyncio.create_task(start_cleanup_task())
+
     try:
         bot_task = asyncio.create_task(run_bot())
         web_task = asyncio.create_task(run_web_server())
@@ -113,10 +135,17 @@ async def run() -> None:
             await asyncio.gather(*pending, return_exceptions=True)
     finally:
         await close_database()
-        from tunedrop.app.utils.ffmpeg_utils import close_shared_client
         await close_shared_client()
+        await close_aiogram_bot()
 
 
 def start() -> None:
+    # Verify uvloop is active (auto-installed by pyrofork)
+    try:
+        import uvloop
+        logger.info("uvloop %s active", uvloop.__version__)
+    except ImportError:
+        logger.warning("uvloop not available — falling back to default event loop")
+
     with contextlib.suppress(KeyboardInterrupt):
         asyncio.run(run())

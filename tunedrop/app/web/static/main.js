@@ -2,25 +2,25 @@
   "use strict";
 
   var GATE_TIMEOUT_MS = 3000;
-  var CHECK_INTERVAL_MS = 300;
-  var RELOAD_KEY = "tunedrop_adblock_reload";
+  var CHECK_INTERVAL_MS = 500;
 
-  /* ── Ad-blocker Detection & Gate ── */
+  /* ── Ad-blocker Detection & Friendly Gate ── */
   var gate = document.getElementById("ad-gate");
 
   if (gate) {
     var stateLoading = document.getElementById("ad-gate-loading");
     var stateBlocked = document.getElementById("ad-gate-blocked");
+    var stateThanks = document.getElementById("ad-gate-thanks");
     var reloadBtn = document.getElementById("ad-gate-reload");
 
     // Show loading spinner immediately
     gate.classList.add("visible");
     stateLoading.classList.add("active");
 
+    // "Got it" button dismisses the gate
     if (reloadBtn) {
       reloadBtn.addEventListener("click", function () {
-        sessionStorage.setItem(RELOAD_KEY, "1");
-        location.reload();
+        dismissGate();
       });
     }
 
@@ -28,7 +28,7 @@
     var elapsed = 0;
     var countdownEl = document.getElementById("ad-gate-countdown");
 
-    // Fast-poll: check every 300ms, dismiss as soon as ads load
+    // Fast-poll: check every 500ms, dismiss as soon as ads load
     var pollId = setInterval(function () {
       elapsed += CHECK_INTERVAL_MS;
 
@@ -42,13 +42,13 @@
       if (detectAds()) {
         resolved = true;
         clearInterval(pollId);
-        dismissGate();
+        showThanks();
         refreshSponsoredAreas();
         startPostGateMonitoring();
         return;
       }
 
-      // Timeout: 3s passed, no ads → show blocked
+      // Timeout: 3s passed, no ads → show friendly blocked message (download still works)
       if (elapsed >= GATE_TIMEOUT_MS) {
         resolved = true;
         clearInterval(pollId);
@@ -132,119 +132,37 @@
     }, 500);
   }
 
+  function showThanks() {
+    if (!gate) return;
+    stateLoading.classList.remove("active");
+    stateThanks.classList.add("active");
+    // Auto-dismiss after 2s
+    setTimeout(function () {
+      dismissGate();
+    }, 2000);
+  }
+
   function dismissGate() {
+    if (!gate) return;
     gate.classList.remove("visible");
-
-    // If user just came back from a reload, show thanks toast
-    if (sessionStorage.getItem(RELOAD_KEY)) {
-      sessionStorage.removeItem(RELOAD_KEY);
-      showThanksToast();
-    }
+    // Reset states for next time
+    stateLoading.classList.remove("active");
+    stateBlocked.classList.remove("active");
+    stateThanks.classList.remove("active");
   }
 
-  function showThanksToast() {
-    var el = document.createElement("div");
-    el.className = "thanks-toast";
-    el.textContent = "Thank you for your support \u2764\uFE0F";
-    document.body.appendChild(el);
-    setTimeout(function () { el.classList.add("fade-out"); }, 2500);
-    setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 3000);
-  }
-
-  /* ── Smartlink on Download Click ── */
+  /* ── Download Button ── */
   var dlBtn = document.getElementById("dl-btn");
 
   if (dlBtn) {
-    var dlClicked = false;
     dlBtn.addEventListener("click", function (e) {
-      if (dlClicked) { e.preventDefault(); return; }
-      dlClicked = true;
-      dlBtn.style.pointerEvents = "none";
-      dlBtn.style.opacity = "0.6";
-
-      var smartlink = dlBtn.dataset.smartlink;
-      if (smartlink) {
-        e.preventDefault();
-        window.open(smartlink, "_blank", "noopener");
-        setTimeout(function () {
-          window.location.href = dlBtn.href;
-        }, 150);
+      // Open smartlink in new tab if configured
+      var sl = dlBtn.dataset.smartlink;
+      if (sl) {
+        window.open(sl, "_blank", "noopener");
       }
-
-      setTimeout(function () {
-        dlBtn.style.pointerEvents = "";
-        dlBtn.style.opacity = "";
-        dlClicked = false;
-      }, 3000);
+      // Let the browser handle the href naturally
     });
   }
 
-  /* ── Countdown Timer ── */
-  var timerWrap = document.getElementById("timer");
-  if (!timerWrap) return;
-
-  var timerH = document.getElementById("timer-h");
-  var timerM = document.getElementById("timer-m");
-  var timerS = document.getElementById("timer-s");
-
-  var expiresMs = new Date(timerWrap.dataset.expires).getTime();
-  if (isNaN(expiresMs)) {
-    if (timerH) timerH.textContent = "00";
-    if (timerM) timerM.textContent = "00";
-    if (timerS) timerS.textContent = "00";
-    return;
-  }
-
-  var warned = false;
-  var expired = false;
-  var intervalId = null;
-  var announceEl = document.getElementById("timer-announce");
-  var lastAnnouncedMins = -1;
-
-  function pad(n) {
-    return n < 10 ? "0" + n : String(n);
-  }
-
-  function announce(msg) {
-    if (announceEl) announceEl.textContent = msg;
-  }
-
-  function tick() {
-    var diff = expiresMs - Date.now();
-    if (diff <= 0) diff = 0;
-
-    var h = Math.floor(diff / 3600000);
-    var m = Math.floor((diff % 3600000) / 60000);
-    var s = Math.floor((diff % 60000) / 1000);
-    var totalMins = Math.ceil(diff / 60000);
-
-    if (timerH) timerH.textContent = pad(h);
-    if (timerM) timerM.textContent = pad(m);
-    if (timerS) timerS.textContent = pad(s);
-
-    // Announce at significant thresholds for screen readers
-    if (totalMins !== lastAnnouncedMins) {
-      if (totalMins === 30 || totalMins === 10 || totalMins === 5 || totalMins === 1) {
-        announce("Link expires in " + totalMins + " minutes");
-      }
-      lastAnnouncedMins = totalMins;
-    }
-
-    if (!warned && diff < 3600000 && diff > 0) {
-      warned = true;
-      timerWrap.classList.add("warning");
-    }
-
-    if (diff === 0 && !expired) {
-      expired = true;
-      timerWrap.classList.remove("warning");
-      timerWrap.classList.add("expired-timer");
-      if (dlBtn) dlBtn.classList.add("hidden");
-      announce("Download link has expired");
-      clearInterval(intervalId);
-    }
-  }
-
-  tick();
-  intervalId = setInterval(tick, 1000);
 })();

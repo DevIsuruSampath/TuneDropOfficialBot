@@ -1,0 +1,1002 @@
+================================================================================
+                    TUNEDROP - COMPLETE PROJECT STRUCTURE
+================================================================================
+
+Project File Tree
+-----------------
+
+TuneDropOfficialBot/
+├── .env / .env.example          # Secrets & config
+├── docker-compose.yml           # Traefik + TuneDrop containers
+├── Dockerfile                   # Python 3.11 + FFmpeg + aria2 + Deno
+├── requirements.txt             # All Python deps
+├── cookies.txt                  # Spotify/YouTube auth cookies
+├── PROJECT_STRUCTURE.txt        # This file
+├── README.md                    # Project overview
+│
+├── tools/
+│   ├── welcome-image.html       # Welcome banner template
+│   └── bot-logo.jpg             # Bot profile logo asset
+│
+└── tunedrop/
+    ├── __init__.py              # main() entry point
+    ├── __main__.py              # python -m tunedrop support
+    ├── cli.py                   # CLI entry point -> runtime.start()
+    └── app/
+        ├── runtime.py           # Bot + FastAPI concurrent startup, uvloop detection
+        │
+        ├── core/
+        │   ├── config.py        # Settings dataclass (all env vars)
+        │   ├── database.py      # MongoDB async init + indexes (orjson parsing)
+        │   ├── client.py        # Pyrogram bot client + handler registration
+        │   ├── constants.py     # Static UI text
+        │   └── logging.py       # File + console logging setup
+        │
+        ├── handlers/
+        │   ├── start.py         # /start, /help, deep links
+        │   ├── song_command.py  # /song <query>
+        │   ├── url_handler.py   # Spotify/YouTube URL input
+        │   ├── playlist_handler.py  # /myfiles, close buttons
+        │   ├── callback_handler.py  # Cancel/Retry buttons
+        │   ├── donation_handler.py  # /donation, /admin, Stars payments
+        │   ├── admin.py         # /stats, admin keyboard builders
+        │   └── errors.py        # /cancel command
+        │
+        ├── services/
+        │   ├── downloader.py    # Core: MusicDownloadManager (~1100 lines, 4GB limit)
+        │   ├── progress.py      # TaskRegistry + DownloadTask (bulk_write)
+        │   ├── cache_service.py # SongCache (MongoDB + channel + message_id tracking)
+        │   ├── link_generator.py # Token-based download links (message_id passthrough)
+        │   ├── subscription.py  # User management + Stars donation tracking
+        │   ├── uploader.py      # ZIP upload to Telegram channel (returns message_id)
+        │   ├── youtube_service.py # yt-dlp wrapper (aria2c external downloader)
+        │   ├── metadata.py      # FFprobe audio metadata
+        │   └── zip_service.py   # ZIP archive creation (ZIP_STORED for MP3)
+        │
+        ├── utils/
+        │   ├── validators.py    # InputType enum, URL classification
+        │   ├── ui_utils.py      # DownloadPhase enum, message builders
+        │   ├── decorators.py    # @rate_limit, @admin_only, @force_sub (membership cache)
+        │   ├── filters.py       # Pyrogram music_input filter
+        │   ├── helpers.py       # command_argument() helper
+        │   ├── ffmpeg_utils.py  # FFprobe, thumbnail extraction (httpx)
+        │   ├── file_utils.py    # sanitize, ZIP (ZIP_STORED), parallel cleanup
+        │   ├── time_utils.py    # format_bytes, format_seconds, estimate_download_time
+        │   ├── memory_cache.py  # L1 in-memory cache (TTL, LRU eviction)
+        │   └── perf.py          # @timed decorator for performance monitoring
+        │
+        └── web/
+            ├── server.py        # FastAPI: MTProto streaming, SEO, robots, sitemap
+            ├── static/          # CSS, JS, fonts, images
+            │   ├── fonts/       # Inter + JetBrains Mono woff2
+            │   ├── fonts/fonts.css
+            │   ├── landing.css  # Landing page + SEO page styles (1403 lines)
+            │   ├── landing.js   # Scroll animations, phone mockup chat (255 lines)
+            │   ├── main.js      # Download page JS (168 lines)
+            │   ├── style.css    # Download page styles
+            │   ├── og-image.png # OG social share image (1200x630)
+            │   └── og-image.svg # OG image source (SVG)
+            └── templates/       # Jinja2 HTML
+                ├── landing.html # Marketing landing page with SEO schemas (541 lines)
+                ├── seo_page.html # Shared template for 4 SEO pages (133 lines)
+                └── download.html # Download page with ads (112 lines)
+
+
+================================================================================
+                         HOW IT WORKS - REQUEST FLOW
+================================================================================
+
+User sends URL/query in Telegram
+         |
+         v
+    HANDLER (url_handler / song_command)
+    +-- @rate_limit: 10 requests per 60s per user
+    +-- @force_sub: Blocks non-channel-members (if enabled)
+    +-- @once_per_message: Deduplicates duplicate updates
+    +-- Classifies input: Spotify track? YouTube? Playlist? Search?
+    +-- Creates DownloadRequest
+    +-- Calls task_registry.start_download()
+         |
+         v
+    TASK REGISTRY (progress.py)
+    +-- Creates DownloadTask with status message + Cancel button
+    +-- Checks max_concurrent_tasks (global) and max_concurrent_tasks_per_user
+    +-- Queues if limits reached, shows position (#1, #2, ...)
+    +-- Spawns worker task -> calls download_manager()
+    +-- Persists active tasks to MongoDB for crash recovery
+         |
+         v
+    DOWNLOAD MANAGER (downloader.py) -- routes by InputType:
+    |
+    +-- SINGLE SPOTIFY TRACK:
+    |   1. Generate cache key: "spotify:track:{ID}"
+    |   2. Check MongoDB cached_songs collection
+    |   3. [HIT] -> _send_cached_audio() via Telegram file_id -> DONE
+    |   4. [MISS] -> Run spotdl download (subprocess, 1 thread, 320k MP3)
+    |   5. Extract YouTube URL from spotdl output -> download cover art
+    |   6. Embed cover in MP3 via FFmpeg
+    |   7. If spotdl fails -> fallback to yt-dlp with "ytsearch1:{query}"
+    |   8. Upload to SONG_CACHE_CHANNEL_ID, store metadata in MongoDB
+    |   9. Generate persistent download link
+    |   10. Send audio to user with inline keyboard (Download, Share)
+    |
+    +-- SPOTIFY PLAYLIST:
+    |   1. spotdl save -> extract individual track URLs
+    |   2. Batch cache check via get_cached_songs_batch()
+    |   3. Retrieve cached tracks from cache channel (download by file_id)
+    |   4. Download uncached tracks via spotdl batch (10 per chunk)
+    |   5. Embed cover art concurrently (3 parallel FFmpeg processes)
+    |   6. Retry failed tracks individually (1 retry per track)
+    |   7. Cache newly downloaded tracks to cache channel + MongoDB
+    |   8. Build ZIP archive -> upload to PRIVATE_CHANNEL_ID
+    |   9. Generate web download link -> send completion message
+    |
+    +-- YOUTUBE TRACK:
+    |   1. Cache key: "youtube:{video_id}"
+    |   2. [HIT] -> send cached -> [MISS] -> yt-dlp download
+    |   3. FFmpeg convert to MP3 (320kbps) + embed cover
+    |   4. Cache to Telegram channel + MongoDB
+    |   5. Send audio with download link
+    |
+    +-- YOUTUBE PLAYLIST:
+    |   1. yt-dlp extract_flat -> get all entries
+    |   2. Batch cache check -> retrieve cached tracks
+    |   3. Download uncached concurrently (5 parallel via semaphore)
+    |   4. Cache new tracks, build ZIP, upload, send link
+    |
+    +-- SEARCH (/song <query>):
+        1. Resolve query via ytsearch1 -> get YouTube video ID
+        2. Check cache with "youtube:{id}" key
+        3. [HIT] -> send cached -> [MISS] -> yt-dlp download
+        4. Convert, cache, send
+         |
+         v
+    STATUS UPDATES (progress.py -- throttled ~2.5s edits)
+    +-- Phase messages: Queued -> Searching -> Checking cache
+        -> Downloading -> Converting -> Packaging -> Uploading -> Completed
+    +-- Playlist counter: Progress X/Y, Cached: N, Downloaded: M, Failed: F
+    +-- FloodWait handling with exponential backoff (max 60s)
+    +-- Dedup: skip edit if text unchanged
+    +-- Dead message detection: stop edits if message deleted
+         |
+         v
+    WEB DELIVERY (server.py)
+    +-- GET /generate/{ref}
+    |   -> Resolve persistent ref from MongoDB download_refs
+    |   -> Redirect to download page (/download/{token})
+    |
+    +-- GET /download/{token}
+    |   -> Render download.html with file info + ads
+    |   -> Download button triggers /file/{token}
+    |
+    +-- GET /file/{token}
+        -> Decode file_id via FileId.decode() (extracts access_hash, dc_id, file_reference)
+        -> Create MTProto media session to correct DC
+        -> Stream via raw upload.GetFile (1MB chunks, Range support)
+        -> Supports up to 4GB files, no Bot API 20MB limit
+        -> Content-Disposition attachment + Accept-Ranges headers
+
+
+================================================================================
+                         STARTUP LIFECYCLE
+================================================================================
+
+python -m tunedrop
+  -> cli.py: main()
+     -> runtime.py: start()
+        -> asyncio.run(run())
+
+run():
+  1. configure_runtime()
+     - settings.ensure_directories() -- creates data/, downloads/, logs/
+     - settings.validate() -- checks BOT_TOKEN, API_ID, etc.
+     - setup_logging() -- file + console handlers
+     - Log uvloop availability at startup
+
+  2. init_database()
+     - Async connect to MongoDB
+     - Create indexes:
+       * file_links: token (unique), user_id+created_at, created_at TTL 24h
+       * user_files: user_id+created_at, created_at TTL 24h
+       * download_refs: ref (unique)
+       * active_tasks: task_id (unique), user_id, created_at TTL 24h
+       * cached_songs: cache_key (unique)
+
+  3. _cleanup_temp_dirs()
+     - Remove orphaned files from temp/, zip/, playlists/ dirs
+
+  4. _acquire_pid_lock()
+     - Exclusive file lock on data/bot.pid
+     - Prevents multiple bot instances
+
+  5. Launch concurrent tasks:
+     - run_bot() -> Pyrogram client connects to Telegram DC
+     - run_web_server() -> Uvicorn serves FastAPI on :8080
+     - Both run until first completes, then cancel the other
+
+  6. Cleanup on shutdown:
+     - close_database() -- close MongoDB connection
+     - close_shared_client() -- close httpx client
+
+
+================================================================================
+                         STORAGE ARCHITECTURE
+================================================================================
+
+MongoDB Collections                Telegram Channels
+---------------------------        ---------------------------
+file_links (24h TTL)               PRIVATE_CHANNEL_ID
+  token, user_id, file_id           -> ZIP archives (playlists)
+  chat_id, message_id               -> Large audio files (>2GB)
+  file_name, file_size              -> Uploaded via send_document
+  created_at (auto-expire)
+
+user_files (24h TTL)               SONG_CACHE_CHANNEL_ID
+  user_id, token, file_name         -> Individual MP3 files
+  created_at (auto-expire)          -> Uploaded via send_audio
+                                     -> Cached by cache_key
+download_refs (persistent)
+  ref, payload (JSON blob)          File System
+    user_id, chat_id, message_id    -----------
+    file_id, file_name, file_size   downloads/temp/    -> Working files
+                                    downloads/zip/      -> ZIP archives
+cached_songs (persistent)           downloads/playlists/ -> Playlist MP3s
+  cache_key (unique)                downloads/songs/    -> Single tracks
+  cache_key_type (spotify/youtube)  data/               -> Bot session
+  telegram_file_id                  logs/               -> Log files
+  cache_message_id (cache channel msg ID for MTProto)
+  title, artist, duration
+  file_size, thumbnail_file_id
+  download_link
+
+users (persistent)
+  user_id, stars_paid
+  created_at, updated_at
+
+Cache Key Format:
+  spotify:track:{spotify_track_id}
+  youtube:{youtube_video_id}
+
+
+================================================================================
+                         EXTERNAL DEPENDENCIES
+================================================================================
+
+| Package        | Version   | Purpose                                        |
+|----------------|-----------|------------------------------------------------|
+| pyrofork       | 2.3.68    | Telegram MTProto client (async, Pyrogram fork) |
+| aiogram        | 3.19.0    | Bot API for Stars invoices + getFile           |
+| tgcrypto       | 1.2.5     | AES/IGE encryption for Telegram MTProto        |
+| spotdl         | 4.4.3     | Spotify -> YouTube Music matching + download    |
+| yt-dlp         | >=2026.2  | YouTube direct download with progress hooks     |
+| ffmpeg-python  | 0.2.0     | Python wrapper for FFmpeg commands              |
+| python-dotenv  | 1.0.1     | Load .env configuration                         |
+| aiofiles       | 24.1.0    | Async file I/O                                  |
+| fastapi        | 0.103.2   | Web framework for download pages                |
+| uvicorn        | 0.23.2    | ASGI server                                     |
+| jinja2         | 3.1.4     | HTML template engine                            |
+| httpx          | >=0.27.0  | Async HTTP client (thumbnails, API calls)       |
+| pymongo        | 4.13.2    | MongoDB async driver                            |
+| orjson         | >=3.10    | Fast JSON parsing (spotdl save files)           |
+
+External Tools:
+| Tool           | Purpose                                         |
+|----------------|--------------------------------------------------|
+| FFmpeg         | Audio conversion (any -> MP3), cover art embed   |
+| FFprobe        | Audio metadata extraction, file validation       |
+| spotdl CLI     | Spotify song matching + download (subprocess)    |
+| Deno           | Runtime for spotdl's YouTube cookie handling     |
+
+
+================================================================================
+                         KEY DATA STRUCTURES
+================================================================================
+
+DownloadPhase (StrEnum) -- 10 states:
+  QUEUED -> SEARCHING -> CHECKING_CACHE -> DOWNLOADING -> CONVERTING
+  -> PACKAGING -> UPLOADING -> COMPLETED (+ FAILED, CANCELLED)
+
+InputType (StrEnum):
+  SPOTIFY_TRACK, SPOTIFY_PLAYLIST, YOUTUBE_MUSIC_TRACK,
+  YOUTUBE_MUSIC_PLAYLIST, SEARCH, UNKNOWN
+
+DownloadRequest (dataclass):
+  user_id, chat_id, source (URL or query), input_type
+  Class methods: from_search(), from_input()
+
+DownloadTask (dataclass):
+  task_id: str           -- unique token
+  user_id: int
+  chat_id: int
+  request: DownloadRequest
+  status_message: Message -- Telegram message edited for progress
+  cancel_event: Event     -- set when user cancels
+  worker: Task            -- asyncio task reference
+  Throttled editing: ~2.5s interval, FloodWait backoff, dedup
+
+SubprocessResult (dataclass):
+  recent_lines: tuple     -- last 50 stdout lines
+  error_lines: tuple      -- last 20 error lines
+
+Cache key format:
+  spotify:track:{ID}  or  youtube:{ID}
+
+AudioMetadata (dataclass):
+  title, artist, duration, thumbnail_path
+
+
+================================================================================
+                         DETAILED FILE ANALYSIS
+================================================================================
+
+CORE MODULE (tunedrop/app/core/)
+---------------------------------
+
+config.py (151 lines) - Application Configuration
+  - _safe_int(value, default) - Safe int parsing from string
+  - _safe_float(value, default) - Safe float parsing from string
+  - Settings dataclass with slots:
+    Telegram: api_id, api_hash, bot_token, private_channel_id,
+              song_cache_channel_id, bot_username, admin_user_ids
+    MongoDB: mongodb_uri, mongodb_database
+    Web: web_host, web_port, download_base_url
+    Limits: max_concurrent_tasks, max_concurrent_tasks_per_user,
+            max_playlist_items, progress_update_interval
+    Spotify: spotify_client_id, spotify_client_secret, spotify_cookie_file
+    YouTube: ytdlp_cookie_file
+    Force-sub: force_sub_enabled, force_sub_channel_id
+    Ads: ads_enabled, desktop/mobile banner configs, smartlink_url
+    Misc: auto_cleanup_minutes, log_level, welcome_image
+    Paths: data_dir, downloads_dir, songs_dir, playlists_dir,
+           temp_dir, zip_dir, logs_dir
+  - Settings.ensure_directories() - Creates all required directories
+  - Settings.validate() - Validates required configuration values
+  - Singleton: settings = Settings()
+
+database.py (80 lines) - MongoDB Connection Management
+  - Thread-safe double-checked locking for async init
+  - _get_lock() - Creates asyncio.Lock with threading safety
+  - init_database() - Async connect, ping, create all indexes
+  - get_database() -> AsyncDatabase - Returns active db instance
+  - close_database() - Graceful shutdown
+  - Collections + indexes:
+    * file_links: token (unique), user_id+created_at, TTL 24h
+    * user_files: user_id+created_at, TTL 24h
+    * download_refs: ref (unique)
+    * active_tasks: task_id (unique), user_id, TTL 24h
+    * cached_songs: cache_key (unique)
+
+client.py (100 lines) - Telegram Bot Client
+  - create_bot_client() - Pyrogram Client with file-based session
+  - register_handlers() - Imports and registers all 8 handler modules
+  - register_bot_commands() - Sets Telegram bot menu:
+    /start, /help, /song, /myfiles, /cancel, /donation
+  - get_aiogram_bot() - Returns singleton aiogram Bot instance
+
+logging.py - Logging Configuration
+  - setup_logging() - File (bot.log) + console handlers with format
+
+constants.py - Static UI Text
+  - WELCOME_TEXT, HELP_TEXT - Built from ui_utils functions
+
+
+HANDLERS MODULE (tunedrop/app/handlers/)
+-----------------------------------------
+
+start.py (136 lines)
+  - start_handler - /start -> welcome image + text + inline keyboard
+    + deep link support (ref parameter for welcome banner)
+  - help_handler - /help -> instructions
+  - help_callback - "Help" button callback
+  - search_callback - "Search" button -> prompts user to type query
+
+song_command.py
+  - song_handler - /song <query> -> classify as SEARCH ->
+    task_registry.start_download()
+
+url_handler.py (42 lines)
+  - url_handler - Detects Spotify/YouTube URLs in messages
+    -> classify_input() -> DownloadRequest.from_input()
+    -> task_registry.start_download()
+  - unsupported_url_handler - Error for non-music URLs
+  - @rate_limit, @force_sub, @once_per_message decorators applied
+
+playlist_handler.py (157 lines)
+  - myfiles_handler - /myfiles -> list_user_files() ->
+    paginated recent downloads with inline keyboard
+  - file_detail_callback - View file detail + download + revoke buttons
+  - close_myfiles_callback - Deletes /myfiles message
+  - "Files" navigation button back to file list
+
+callback_handler.py
+  - cancel_callback - "Cancel" button -> task_registry.cancel()
+  - retry_callback - "Try Again" button -> task_registry.retry_download()
+
+donation_handler.py (341 lines)
+  - admin_handler - /admin -> admin panel with stats keyboard
+  - donation_command - /donation -> Stars donation UI
+    + Preset amounts: 50, 100, 250, 500 Stars
+    + Custom amount input (1-2500 Stars)
+  - donate_preset_callback - Handle preset amount selection
+  - donate_custom_callback - Prompt for custom amount
+  - custom_amount_input - Process custom amount text input
+  - admin_input_handler - Admin user info lookup
+  - Stars payment flow:
+    + _send_donation_invoice() via aiogram send_invoice (XTR currency)
+    + on_raw_update() - Approve precheckout queries
+    + on_payment_success() - Record donation + thank user
+  - Admin callback handlers:
+    + back_admin_callback - Return to admin panel
+    + stats_callback - Refresh stats display
+    + ads_panel_callback - Show ads control panel
+    + ads_toggle_callback - Toggle ads on/off at runtime
+    + pro_info_callback - Look up user donation info
+
+admin.py (59 lines)
+  - build_admin_text() - Build admin stats text (user count, cache, etc.)
+  - admin_keyboard() - Admin panel inline keyboard builder
+  - ads_keyboard() - Ads on/off toggle keyboard builder
+
+errors.py
+  - cancel_handler - /cancel -> task_registry.cancel_all(user_id)
+
+
+SERVICES MODULE (tunedrop/app/services/)
+-----------------------------------------
+
+downloader.py (~1100 lines) - Core Download Logic
+  _build_display_name(artist, title) - "Artist - Title" with dedup
+  DownloadRequest dataclass:
+    - from_search(), from_input() - Factory methods
+  SubprocessResult dataclass:
+    - last_error, last_line - Convenience accessors
+  SubprocessFailure(RuntimeError) - Subprocess error with result attached
+
+  _TELEGRAM_BOT_UPLOAD_LIMIT = 4 * 1024**3  # 4GB (MTProto limit)
+  _json_loads = orjson.loads  # Fast JSON parsing for spotdl save files
+
+  MusicDownloadManager class (with @timed decorators on key methods):
+    DISPATCH:
+      __call__() -> routes Spotify/Search vs YouTube by InputType
+      _handle_spotify_or_search() -> track vs playlist
+      _handle_youtube() -> track vs playlist
+
+    SPOTIFY TRACK:
+      _download_spotify_track()
+        1. Cache check (generate_cache_key -> song_cache.get_cached_song)
+        2. If miss: spotdl subprocess download
+        3. Extract YouTube URL from spotdl output -> cover art
+        4. Embed cover in MP3 via FFmpeg
+        5. Fallback: yt-dlp if spotdl fails
+        6. Upload to cache channel -> (cache_msg_id, audio_file_id, thumb_file_id)
+        7. Store real cache_msg_id in download ref payload
+        8. cache_song() with cache_message_id=cache_msg_id
+        9. _deliver_audio() with download link
+
+    SPOTIFY PLAYLIST:
+      _download_spotify_playlist()
+        1. _get_spotify_playlist_track_urls() via spotdl save (orjson parsing)
+        2. Batch cache check (get_cached_songs_batch)
+        3. _retrieve_cached_track() from cache channel
+        4. spotdl batch download (10 per chunk)
+        5. _embed_cover_art_batch() (3 concurrent FFmpeg)
+        6. Individual retry for failed tracks
+        7. _cache_spotify_tracks() with cache_message_id tracking
+        8. build_zip -> upload_zip_to_storage (stores upload.message_id) -> link
+
+    YOUTUBE TRACK:
+      _download_youtube_track()
+        1. Cache check with "youtube:{id}" key
+        2. _run_ytdlp_download() with progress hooks (aria2c external downloader)
+        3. FFmpeg convert to MP3 + cover embed
+        4. Cache to channel + MongoDB + link (with cache_message_id)
+
+    YOUTUBE PLAYLIST:
+      _download_youtube_playlist()
+        1. extract_info (flat) -> all entries
+        2. Batch cache check per entry
+        3. Concurrent download (5 parallel via semaphore)
+        4. _cache_new_tracks() with cache_message_id
+        5. ZIP -> upload_zip_to_storage (real message_id) -> link
+
+    SUBPROCESS MANAGEMENT:
+      _run_subprocess() - Generic async subprocess runner
+        - Reads stdout line by line with timeout
+        - Stalls detected after configurable inactivity timeout
+        - Kills process group (parent + children) on cancel/timeout
+        - Returns SubprocessResult with recent + error lines
+      _run_spotdl() - spotdl download wrapper (single URL)
+      _run_spotdl_batch() - spotdl with multiple URLs, progress tracking
+      _run_ytdlp_download() - yt-dlp with progress hooks, stall detection
+        - Runs in thread (yt-dlp is sync), polls via asyncio.wait_for
+        - Progress hook: throttled 4s updates with %, speed, ETA
+        - Automatic FFmpeg conversion to MP3 after download
+
+    AUDIO PROCESSING:
+      _convert_to_mp3() - FFmpeg with dynamic timeout (6x duration)
+      _embed_cover_in_mp3() - Embed cover art via FFmpeg
+      _embed_cover_for_file() - YouTube URL -> cover art embed
+      _embed_cover_art_batch() - Concurrent cover embed (3 parallel)
+      _validate_audio_file() - ffprobe check for valid audio stream
+
+    DELIVERY:
+      _deliver_audio() - Routes: direct send (<4GB) vs large file link
+      _send_audio() - Upload MP3 with caption, keyboard, thumbnail
+      _send_cached_audio() - Send by file_id, uses cache_message_id for ref
+      _send_large_audio() - Upload to channel, send download link (4GB limit)
+
+    PROGRESS MAPPING:
+      _map_subprocess_progress() - Parse spotdl/yt-dlp output lines
+        -> build_progress_message() / build_playlist_status()
+      _is_subprocess_error_line() - Detect errors in subprocess output
+
+    UTILITY:
+      _extract_youtube_url() - Find YouTube URL in subprocess output
+      _extract_youtube_urls_batch() - Extract all YouTube URLs in order
+      _get_bot_username() - Cache bot username from get_me()
+
+  Module singletons:
+    download_manager = MusicDownloadManager()
+    _SPOTDL_BIN = shutil.which("spotdl") or "spotdl"
+
+progress.py (510 lines) - Task & Progress Management
+  DownloadTask dataclass:
+    - update(text, parse_mode) - Throttled status message editing
+      - ~2.5-second minimum interval between edits
+      - Pending/flush pattern: coalesces rapid updates
+      - FloodWait handling: exponential backoff, max 60s
+      - Dedup: skips edit if text + markup unchanged
+      - Dead message detection: stops edits after message deleted
+
+  TaskRegistry class:
+    - start_download() - Create task, queue if capacity reached
+    - retry_download() - Retry from failed state
+    - _run() - Execute download with error/retry handling
+    - cancel() / cancel_all() - Cancel by task_id or user_id
+    - _dequeue_next() - Start queued tasks when capacity frees
+    - _should_queue(user_id) - Per-user + global limit check
+    - _persist() - Bulk write active tasks to MongoDB
+    - _cleanup_user_tasks() - Remove completed/stale tasks
+    - active_count, queued_count, get_user_active_count()
+    - Prevents duplicate sources per user
+
+  Module singleton: task_registry = TaskRegistry()
+
+cache_service.py (160 lines) - Song Caching
+  generate_cache_key(source, input_type, yt_info) -> (key, type) | (None, None)
+    - Spotify: regex extract track ID -> "spotify:track:{ID}"
+    - YouTube: regex extract video ID -> "youtube:{ID}"
+    - Search: uses yt_info.id if available
+  SongCache class:
+    - get_cached_song(key) -> Single MongoDB lookup
+    - get_cached_songs_batch(keys) -> $in query for playlists
+    - cache_song(..., cache_message_id=None) -> Upsert metadata + file_id + message_id
+    - upload_to_cache_channel() -> send_audio to cache channel
+      Returns (message_id, audio_file_id, thumbnail_file_id) tuple
+    - invalidate_cache(key) -> Delete from MongoDB
+  Module singleton: song_cache = SongCache()
+
+link_generator.py (144 lines) - Download Links
+  LinkStore class:
+    - create_ref(payload) -> Persistent reference in download_refs
+      payload = {user_id, chat_id, message_id, file_id, file_name, file_size}
+    - resolve_ref(ref) -> Look up ref, create expiring token
+      Passes chat_id, message_id, file_id, file_name, file_size through
+    - create_link(user_id, payload) -> Direct token creation
+    - list_user_files(user_id) -> Recent downloads for /myfiles
+    - get(token) -> Retrieve link metadata (all fields except _id, token, user_id)
+    - revoke(token) -> Mark link as expired
+  Module singleton: link_store = LinkStore()
+
+subscription.py (60 lines) - User Management & Donations
+  SubscriptionService class:
+    - ensure_user(user_id) -> Create user record if not exists
+    - record_donation(user_id, stars_amount) -> Increment stars_paid
+    - get_user_info(user_id) -> User document projection
+    - get_total_donations() -> Aggregate total Stars across all users
+  Module singleton: subscription_service = SubscriptionService()
+
+uploader.py (41 lines) - File Upload
+  UploadedFile dataclass - message_id, file_id, file_name, file_size
+  upload_zip_to_storage() -> Send ZIP to private channel via send_document
+
+youtube_service.py (46 lines) - yt-dlp Wrapper
+  _base_ytdlp_opts() -> Shared yt-dlp options (quiet, retries, cookies)
+  extract_info(url) -> Async yt-dlp info extraction (no download)
+
+metadata.py - Audio Metadata
+  AudioMetadata dataclass - title, artist, duration, thumbnail_path
+  read_audio_metadata() -> FFprobe extraction with fallbacks
+
+zip_service.py - ZIP Archive
+  build_zip() -> Async ZIP creation wrapper
+
+
+UTILS MODULE (tunedrop/app/utils/)
+-----------------------------------
+
+validators.py
+  InputType enum: SPOTIFY_TRACK, SPOTIFY_PLAYLIST, YOUTUBE_MUSIC_TRACK,
+                  YOUTUBE_MUSIC_PLAYLIST, SEARCH, UNKNOWN
+  Compiled regex: SPOTIFY_TRACK_RE, SPOTIFY_PLAYLIST_RE, YOUTUBE_RE
+  classify_input(text) -> InputType based on URL patterns
+  is_supported_url(text) -> bool
+  looks_like_url(text) -> bool
+
+ui_utils.py (307 lines)
+  DownloadPhase(StrEnum) - 10 download lifecycle states
+  escape_html(text) -> HTML-safe string
+  Message builders:
+    build_progress_message(phase, %, eta, speed, details)
+    build_playlist_status(phase, done, total, cached, downloading, failed)
+    build_playlist_completion(tracks, size, link, cached, downloaded, failed)
+    build_audio_caption(title, artist, duration)
+    build_audio_keyboard(bot_username, download_url) -> InlineKeyboardMarkup
+    build_large_file_message(title, artist, duration, size, link, eta, speed)
+    build_error_message(error)
+    build_welcome_message() - Emoji-rich welcome with playlist info
+    build_help_message() - Sections: Songs, Playlists, Commands
+    build_welcome_keyboard(), build_back_keyboard(), build_retry_keyboard()
+    build_force_sub_message(channel_link) -> (text, markup)
+
+decorators.py (182 lines)
+  @once_per_message - Dedup via OrderedDict of seen (chat_id, msg_id)
+  @rate_limit - 10 requests per 60s per user, shows cooldown
+  @admin_only - Checks user.id in admin_user_ids
+  @force_sub - Checks Telegram channel membership (5min cache)
+    - Admins bypass all checks
+    - Cached channel link resolution
+
+filters.py
+  music_input - Pyrogram filter combining URL patterns + command prefix
+
+helpers.py
+  command_argument(message) -> Extracts text after /command
+
+ffmpeg_utils.py
+  _get_shared_client() -> Lazy httpx.AsyncClient with redirects
+  close_shared_client() -> Cleanup on shutdown
+  probe_audio(path) -> FFprobe sync analysis
+  async_probe_audio(path) -> Async FFprobe wrapper
+  extract_thumbnail_from_url(url, out_path) -> Download + save, max 5MB
+
+file_utils.py (60 lines)
+  sanitize_filename(value) -> Remove illegal chars, truncate to 180
+  ensure_clean_directory(path) -> Async rm + mkdir
+  create_zip_archive(source_dir, zip_path) -> Deflate-compressed ZIP
+  cleanup_paths(paths) -> Async rm for dirs and files
+  list_audio_files(path) -> Sorted MP3 list
+  find_first_file(path, suffix) -> First file matching extension
+
+time_utils.py
+  format_bytes(bytes) -> "361.93 MB"
+  format_seconds(seconds) -> "5m 30s"
+  format_duration_mmss(seconds) -> "05:30"
+  estimate_download_time(file_size, speed_kbps) -> ETA in seconds
+
+memory_cache.py - L1 In-Memory Cache
+  MemoryCache class:
+    - get(key) -> Cached value or None
+    - set(key, value, ttl) -> Store with TTL (default 300s)
+    - delete(key) -> Remove entry
+    - clear() -> Remove all entries
+    - Auto-evicts expired entries on access
+    - LRU eviction when max_size exceeded (default 1000)
+  Module singleton: memory_cache = MemoryCache()
+
+perf.py - Performance Monitoring
+  @timed decorator - Logs function execution time
+    - Uses logging.getLogger("perf") at INFO level
+    - Format: "PERF function_name: Xms"
+
+
+WEB MODULE (tunedrop/app/web/)
+-------------------------------
+
+server.py (~830 lines) - FastAPI Web Server
+  create_web_app() -> FastAPI with lifespan, static files, security headers
+
+  _SEO_PAGES dict - 4 programmatic SEO pages with full content:
+    /spotify-to-mp3     - "Spotify to MP3 Converter"
+    /youtube-to-mp3     - "YouTube to MP3 Downloader"
+    /telegram-music-bot - "Telegram Music Bot"
+    /download-spotify-playlist - "Download Spotify Playlist"
+    Each page has: page_title, page_desc, h1_title, h1_sub,
+    content (HTML ~1000-1200 words), schema_extra (JSON-LD)
+
+  Routes:
+    GET /health -> {"status": "ok"}
+    GET /robots.txt -> Allow /, Disallow /download/, /file/, /generate/
+    GET /sitemap.xml -> XML sitemap with 5 pages + priorities
+    GET / -> Landing page (landing.html)
+    GET /spotify-to-mp3 -> SEO page
+    GET /youtube-to-mp3 -> SEO page
+    GET /telegram-music-bot -> SEO page
+    GET /download-spotify-playlist -> SEO page
+    GET /generate/{ref} -> Resolve ref, redirect to download page
+    GET /download/{token} -> Render download.html with file info + ads
+    GET /file/{token} -> MTProto stream via upload.GetFile (see below)
+
+  MTProto File Streaming (mtproto_stream):
+    1. Decode file_id via FileId.decode() -> extract access_hash, dc_id, file_reference
+    2. Create MTProto media session to correct DC (_get_media_session)
+    3. Build InputDocumentFileLocation from decoded file_id
+    4. Stream via raw upload.GetFile in 1MB chunks
+    5. Supports Range requests (206 Partial Content) for resumable downloads
+    6. No temp file, no Bot API — direct MTProto byte streaming up to 4GB
+
+  _parse_range(header, file_size) -> HTTP Range header parser
+  _get_media_session(client, file_id_obj) -> Pyrogram DC session manager
+  mtproto_stream(file_id, from_bytes, until_bytes) -> AsyncIterator[bytes]
+
+  Middleware:
+    - security_headers: X-Content-Type-Options, X-Frame-Options, CSP, etc.
+      (with try/except for BaseHTTPMiddleware + StreamingResponse compat)
+    - Host validation: blocks direct IP access, only allows configured domain
+    - GZip compression (min 500 bytes)
+    - Static file caching (1 hour)
+
+static/main.js (168 lines)
+  - Download page interactions
+  - Smartlink: opens ad URL when download clicked
+  - File size formatting, expired state handling
+  - Toast notification system
+
+static/style.css
+  - Dark theme with glassmorphism cards
+  - Responsive layout (mobile + desktop)
+  - Ad banner slots (728x90, 300x250, 320x50)
+  - Progress bar and countdown animations
+
+static/landing.js (255 lines)
+  - Scroll-triggered animations (IntersectionObserver)
+  - Phone mockup chat simulation with typing indicators
+  - Navbar background change on scroll
+  - Mobile menu toggle
+  - Step/feature card reveal animations
+
+static/landing.css (1403 lines)
+  - Landing page + SEO page shared styles
+  - Hero section with gradient, phone mockup
+  - Platform cards grid (Spotify, YouTube Music, Search)
+  - How it works steps with connecting line
+  - Feature cards grid with hover effects
+  - Use cases grid (4 cards)
+  - FAQ accordion (details/summary)
+  - SEO page styles: seo-hero, seo-content with rich typography
+  - CTA section with glow effect
+  - Footer with links to all SEO pages
+  - Full responsive breakpoints (900px, 768px, 480px)
+  - Reduced motion support (prefers-reduced-motion)
+  - Custom font: Inter (400-800) + JetBrains Mono (400-500)
+
+templates/download.html (112 lines)
+  - Jinja2 template with file metadata
+  - Ad banner slots (configurable from env)
+  - Download button
+  - Expired file state handling
+
+templates/landing.html (541 lines)
+  - Marketing landing page with full SEO
+  - Schema.org: WebSite, SoftwareApplication, FAQPage (8 questions)
+  - OG + Twitter card meta with og-image.png
+  - Sections: Hero, Platforms, How It Works, Features, Use Cases, FAQ, CTA
+  - Phone mockup with animated chat demo
+  - Internal links to all 4 SEO pages
+  - Footer with links navigation
+
+templates/seo_page.html (133 lines)
+  - Shared template for all 4 programmatic SEO pages
+  - Schema.org: WebPage + per-page schema (BreadcrumbList, FAQPage, HowTo)
+  - OG + Twitter card meta
+  - Nav, seo-hero, seo-content, CTA, footer sections
+  - Internal links to all other SEO pages
+
+
+================================================================================
+                         SEO ARCHITECTURE
+================================================================================
+
+Landing Page (/):
+  Title: "Spotify to MP3 & YouTube to MP3 Downloader -- Free | TuneDrop"
+  Schemas: WebSite, SoftwareApplication, FAQPage (8 questions)
+  OG image: /static/og-image.png (1200x630)
+  Sections: Hero, Platforms, How It Works, Features, Use Cases, FAQ, CTA
+  Internal links to all 4 SEO pages
+
+SEO Pages (programmatic, keyword-targeted):
+  /spotify-to-mp3:
+    Keywords: "spotify to mp3", "spotify to mp3 converter", "spotify downloader"
+    Schemas: BreadcrumbList, FAQPage (5 Qs), HowTo (3 steps)
+    Content: ~1200 words, FAQ, comparison section, instructions
+
+  /youtube-to-mp3:
+    Keywords: "youtube to mp3", "youtube to mp3 downloader", "youtube music converter"
+    Schemas: BreadcrumbList, FAQPage (4 Qs), HowTo (3 steps)
+    Content: ~1100 words, FAQ, platform comparison, mobile instructions
+
+  /telegram-music-bot:
+    Keywords: "telegram music bot", "telegram mp3 downloader", "music bot telegram"
+    Schemas: BreadcrumbList, FAQPage (4 Qs)
+    Content: ~1000 words, commands reference, FAQ, advantages
+
+  /download-spotify-playlist:
+    Keywords: "download spotify playlist", "spotify playlist to mp3", "spotify playlist downloader"
+    Schemas: BreadcrumbList, FAQPage (5 Qs), HowTo (3 steps)
+    Content: ~1100 words, FAQ, feature list, comparison
+
+Technical SEO:
+  robots.txt: Allow /, Disallow /download/, /file/, /generate/
+  sitemap.xml: 5 pages with priorities (1.0, 0.9, 0.8)
+  Canonical URLs on all pages
+  Host validation: blocks direct IP access
+  GZip compression, static file caching
+  Semantic HTML5, ARIA labels, skip links
+
+
+================================================================================
+                         DOCKER DEPLOYMENT
+================================================================================
+
+Architecture:
+  Internet -> Traefik (:443 HTTPS) -> TuneDrop (:8080) -> MongoDB + Telegram
+
+Dockerfile:
+  FROM python:3.11-slim
+  RUN apt-get install ffmpeg aria2 curl ca-certificates unzip
+  RUN curl -fsSL https://deno.land/install.sh | sh
+  COPY requirements.txt && pip install
+  RUN python -m pip install -U --pre "yt-dlp[default]"
+  COPY . .
+  CMD ["python", "-m", "tunedrop"]
+
+docker-compose.yml:
+  traefik:
+    image: traefik:v3
+    network_mode: host
+    volumes: /var/run/docker.sock, traefik_data
+    command: Docker provider, web+websecure entrypoints, Let's Encrypt ACME
+
+  tunedrop:
+    build: .
+    network_mode: host
+    env_file: .env
+    volumes:
+      session_data -> /app/data       (Pyrogram session)
+      downloads -> /app/downloads     (Audio files, ZIPs)
+      logs -> /app/logs               (Application logs)
+      ./cookies.txt -> /app/cookies.txt:ro
+    labels: Traefik router for TUNEDROP_DOMAIN, TLS via Let's Encrypt
+
+Volumes:
+  traefik_data - ACME certificates
+  session_data - Pyrogram session file
+  downloads    - All downloaded audio and ZIP files
+  logs         - Application log files
+
+Environment Variables (see .env.example):
+  Required: API_ID, API_HASH, BOT_TOKEN, PRIVATE_CHANNEL_ID, MONGODB_URI
+  Optional: SONG_CACHE_CHANNEL_ID, FORCE_SUB, ADS_ENABLED,
+            SPOTIFY_CLIENT_ID, SPOTDL_INACTIVITY_TIMEOUT_SECONDS,
+            MAX_CONCURRENT_TASKS, MAX_CONCURRENT_TASKS_PER_USER
+  Web: DOWNLOAD_BASE_URL (e.g. https://tdrp.cc), WEB_HOST, WEB_PORT
+  Ads: ADS_ENABLED, WEB_ADS_DESKTOP_TOP_BANNER_KEY/INVOKE_URL,
+       WEB_ADS_MOBILE_TOP_BANNER_KEY/INVOKE_URL, ADS_SMARTLINK_URL
+
+
+================================================================================
+                         BOT COMMANDS REFERENCE
+================================================================================
+
+User Commands:
+  /start          Welcome message with image + inline keyboard
+  /help           Usage instructions (Songs, Playlists, Commands sections)
+  /song <query>   Search and download a song (e.g., /song Blinding Lights)
+  /myfiles        List recent downloads with download/revoke buttons
+  /cancel         Cancel all active downloads
+  /donation       Support TuneDrop with Stars donations (50/100/250/500 or custom)
+
+  Direct URL:     Send any Spotify/YouTube Music URL for instant download
+  Playlists:      Send a playlist URL to download all tracks as ZIP
+
+Admin Commands:
+  /stats          Bot statistics (users, cache, uptime)
+  /admin          Admin panel with inline keyboard (stats, ads, user info)
+  /ads on|off     Toggle ads at runtime
+
+Inline Buttons:
+  Cancel          Cancel a specific download task
+  Try Again       Retry a failed download
+  Download        Web download link for audio/ZIP
+  Share           Share bot invite link
+  Files           Back to file list in /myfiles
+  Revoke          Revoke a download link
+  Close           Close /myfiles message
+
+
+================================================================================
+                         RATE LIMITING & PROTECTION
+================================================================================
+
+Per-user rate limit: 10 requests per 60 seconds
+  - Shows cooldown message with seconds remaining
+  - Prunes stale entries every 5 minutes
+
+Task queue:
+  - Global: max_concurrent_tasks (default: 10)
+  - Per-user: max_concurrent_tasks_per_user (default: 1)
+  - Queue shows position (#1, #2, ...)
+  - Auto-dequeues when capacity frees
+
+Message deduplication:
+  - once_per_message: LRUCache of last 500 (chat_id, msg_id) pairs
+
+Force subscription:
+  - Optional Telegram channel membership check
+  - 5-minute membership cache per user
+  - Admins bypass check
+  - Cached channel invite link
+
+Progress editing:
+  - ~2.5-second minimum interval between edits
+  - FloodWait exponential backoff (max 60s)
+  - Dedup: skip if text unchanged
+  - Dead message: stop edits if message deleted
+
+Web security:
+  - Host validation: only serves requests for configured domain
+  - Security headers: X-Content-Type-Options, X-Frame-Options, CSP
+  - Token validation: alphanumeric only, max 64 chars
+  - Suspicious Telegram file_path detection
+
+
+================================================================================
+                         SUBPROCESS MANAGEMENT
+================================================================================
+
+spotdl (Spotify downloads):
+  - Run as async subprocess with stdout capture
+  - 60s timeout for first output, configurable stall timeout
+  - Process group kill (parent + children) on cancel/timeout
+  - Output parsed for progress: "Downloaded X", "Found N songs"
+  - Rate limit messages filtered from UI
+  - Batch mode: multiple URLs in single process for efficiency
+
+yt-dlp (YouTube downloads):
+  - Runs in thread (sync library) with asyncio.to_thread
+  - Progress hooks: throttled 4s updates with %, speed, ETA
+  - Stall detection: configurable inactivity timeout
+  - Auto-converts to MP3 via FFmpeg after download
+  - Cookie support for authenticated YouTube access
+
+FFmpeg (audio processing):
+  - Conversion: any format -> MP3 320kbps
+  - Dynamic timeout: 6x audio duration + 300s overhead (min 900s)
+  - Cover art embedding: FFmpeg maps audio + image streams
+  - Validation: ffprobe checks for valid audio stream
+
+
+================================================================================
+                         DONATION SYSTEM
+================================================================================
+
+Currency: Telegram Stars (XTR)
+Flow:
+  1. User sends /donation -> sees preset buttons (50, 100, 250, 500) + custom
+  2. User selects amount or types custom value (1-2500)
+  3. Bot sends Stars invoice via aiogram send_invoice
+  4. Telegram processes payment through Stars
+  5. Bot receives UpdateBotPrecheckoutQuery -> approves via Pyrogram raw
+  6. On successful_payment -> subscription_service.record_donation()
+  7. User receives thank-you message
+
+Storage:
+  users collection: {user_id, stars_paid, created_at, updated_at}
+  stars_paid incremented on each donation
+
+Admin:
+  /admin -> User Info button -> look up user's total donations
+  /stats -> shows total donations across all users
+
+
+================================================================================

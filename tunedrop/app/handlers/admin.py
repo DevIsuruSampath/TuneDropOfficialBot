@@ -1,29 +1,31 @@
 from __future__ import annotations
 
-import logging
-
-from pyrogram import Client, filters
 from pyrogram.enums import ParseMode
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+)
 
 from tunedrop.app.core.config import settings
+from tunedrop.app.core.database import get_database
 from tunedrop.app.services.progress import task_registry
-from tunedrop.app.utils.decorators import admin_only, once_per_message
+from tunedrop.app.services.subscription import subscription_service
 
 
-logger = logging.getLogger(__name__)
-
-
-def _admin_keyboard() -> InlineKeyboardMarkup:
+def admin_keyboard() -> InlineKeyboardMarkup:
+    ads_state = "ON" if settings.ads_enabled else "OFF"
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("Ads", callback_data="show_ads"),
+            InlineKeyboardButton("User Info", callback_data="pro_info"),
+            InlineKeyboardButton("Stats", callback_data="show_stats"),
+        ],
+        [
+            InlineKeyboardButton(f"Ads: {ads_state}", callback_data="show_ads"),
         ],
     ])
 
 
-def _ads_keyboard() -> InlineKeyboardMarkup:
-    state = "ON" if settings.ads_enabled else "OFF"
+def ads_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("ON", callback_data="ads_on"),
@@ -33,72 +35,25 @@ def _ads_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def register(app: Client) -> None:
-    @app.on_message(filters.command("stats"))
-    @admin_only
-    @once_per_message
-    async def stats_handler(_, message):
-        active = task_registry.active_count
-        queued = task_registry.queued_count
-        await message.reply_text(f"Active tasks: {active}\nQueued: {queued}")
+async def build_admin_text() -> str:
+    active = task_registry.active_count
+    queued = task_registry.queued_count
+    ads_state = "ON" if settings.ads_enabled else "OFF"
 
-    @app.on_message(filters.command("admin"))
-    @admin_only
-    @once_per_message
-    async def admin_handler(_, message):
-        await message.reply_text(
-            "<b>Admin Panel</b>",
-            reply_markup=_admin_keyboard(),
-            parse_mode=ParseMode.HTML,
-        )
+    total_users = 0
+    total_stars = 0
+    try:
+        db = get_database()
+        total_users = await db["users"].count_documents({})
+        total_stars = await subscription_service.get_total_donations()
+    except Exception:
+        pass
 
-    @app.on_message(filters.command("ads"))
-    @admin_only
-    @once_per_message
-    async def ads_handler(_, message):
-        state = "ON" if settings.ads_enabled else "OFF"
-        await message.reply_text(
-            f"<b>Ads</b>\n\nStatus: <code>{state}</code>",
-            reply_markup=_ads_keyboard(),
-            parse_mode=ParseMode.HTML,
-        )
-
-    @app.on_callback_query(filters.regex("^show_ads$"))
-    @admin_only
-    async def ads_status_callback(_, callback_query):
-        await callback_query.answer()
-        state = "ON" if settings.ads_enabled else "OFF"
-        text = f"<b>Ads</b>\n\nStatus: <code>{state}</code>"
-        try:
-            await callback_query.message.edit_text(text, reply_markup=_ads_keyboard(), parse_mode=ParseMode.HTML)
-        except Exception:
-            logger.debug("Failed to edit admin callback message", exc_info=True)
-
-    @app.on_callback_query(filters.regex("^ads_(on|off)$"))
-    @admin_only
-    async def ads_toggle_callback(_, callback_query):
-        action = callback_query.data.split("_", 1)[1]
-        want_on = action == "on"
-        if settings.ads_enabled == want_on:
-            state = "ON" if want_on else "OFF"
-            await callback_query.answer(f"Ads are already {state}!", show_alert=True)
-            return
-        settings.ads_enabled = want_on
-        state = "ON" if settings.ads_enabled else "OFF"
-        text = f"<b>Ads</b>\n\nStatus: <code>{state}</code>"
-        await callback_query.answer(f"Ads turned {state}")
-        try:
-            await callback_query.message.edit_text(text, reply_markup=_ads_keyboard(), parse_mode=ParseMode.HTML)
-        except Exception:
-            logger.debug("Failed to edit admin callback message", exc_info=True)
-
-    @app.on_callback_query(filters.regex("^back_admin$"))
-    @admin_only
-    async def back_admin_callback(_, callback_query):
-        await callback_query.answer()
-        try:
-            await callback_query.message.edit_text(
-                "<b>Admin Panel</b>", reply_markup=_admin_keyboard(), parse_mode=ParseMode.HTML,
-            )
-        except Exception:
-            logger.debug("Failed to edit admin callback message", exc_info=True)
+    return (
+        "<b>Admin Panel</b>\n\n"
+        f"<b>Tasks:</b> {active} active / {queued} queued\n"
+        f"<b>Users:</b> {total_users} total\n"
+        f"  \u2b50 Stars donated: {total_stars}\n"
+        f"<b>Ads:</b> <code>{ads_state}</code>\n\n"
+        "<i>Tap a button below. For user info, forward a message from the target user or send their ID.</i>"
+    )

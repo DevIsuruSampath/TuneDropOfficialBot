@@ -12,6 +12,7 @@ RUN apt-get update \
        curl \
        ca-certificates \
        unzip \
+       aria2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Deno (recommended JS runtime for yt-dlp)

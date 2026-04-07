@@ -29,8 +29,9 @@ async def ensure_clean_directory(path: Path) -> Path:
 
 
 def create_zip_archive(source_dir: Path, zip_path: Path) -> Path:
+    # MP3 files are already compressed — DEFLATE adds CPU overhead for zero size benefit
     zip_path.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=6) as archive:
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as archive:
         for file_path in sorted(source_dir.rglob("*")):
             if file_path.is_file() and not file_path.is_symlink():
                 archive.write(file_path, arcname=file_path.resolve().relative_to(source_dir.resolve()))
@@ -38,13 +39,17 @@ def create_zip_archive(source_dir: Path, zip_path: Path) -> Path:
 
 
 async def cleanup_paths(paths: list[Path]) -> None:
-    for path in paths:
-        if not path.exists():
-            continue
-        if path.is_dir():
-            await asyncio.to_thread(shutil.rmtree, path, True)
+    """Remove files/directories in parallel instead of sequentially."""
+    if not paths:
+        return
+
+    async def _remove_one(p: Path) -> None:
+        if p.is_dir():
+            await asyncio.to_thread(shutil.rmtree, p, True)
         else:
-            await asyncio.to_thread(path.unlink, True)
+            await asyncio.to_thread(p.unlink, True)
+
+    await asyncio.gather(*[_remove_one(p) for p in paths if p.exists()], return_exceptions=True)
 
 
 def list_audio_files(path: Path) -> list[Path]:
@@ -58,25 +63,3 @@ def find_first_file(path: Path, suffix: str) -> Path | None:
     return None
 
 
-def check_disk_space(path: Path, required_bytes: int = 500 * 1024 * 1024) -> bool:
-    """Check if there's enough disk space at the given path.
-
-    Args:
-        path: The directory to check.
-        required_bytes: Minimum required free bytes (default 500 MB).
-
-    Returns:
-        True if enough space is available, False otherwise.
-    """
-    try:
-        usage = shutil.disk_usage(str(path))
-        if usage.free < required_bytes:
-            logger.warning(
-                "Low disk space: %.0f MB free, need %.0f MB at %s",
-                usage.free / (1024 * 1024), required_bytes / (1024 * 1024), path,
-            )
-            return False
-        return True
-    except OSError:
-        logger.warning("Could not check disk space at %s", path, exc_info=True)
-        return True  # Assume OK if we can't check

@@ -11,6 +11,7 @@ from pyrogram.types import Message
 
 from tunedrop.app.core.config import settings
 from tunedrop.app.core.database import get_database
+from tunedrop.app.utils.memory_cache import _song_cache
 from tunedrop.app.utils.validators import InputType
 
 
@@ -55,8 +56,14 @@ class SongCache:
         """Look up a cached song by its cache key. Returns the document or None."""
         if not cache_key or not settings.song_cache_channel_id:
             return None
+        # L1 memory cache check
+        cached = _song_cache.get(cache_key)
+        if cached is not None:
+            return cached
         db = get_database()
         doc = await db["cached_songs"].find_one({"cache_key": cache_key})
+        if doc:
+            _song_cache.set(cache_key, doc, ttl=300.0)
         return doc
 
     async def get_cached_songs_batch(self, cache_keys: list[str]) -> dict[str, dict[str, Any]]:
@@ -83,27 +90,33 @@ class SongCache:
         file_size: int,
         thumbnail_file_id: str | None = None,
         download_link: str | None = None,
+        cache_message_id: int | None = None,
     ) -> None:
         """Store a song's metadata and Telegram file reference in the cache."""
         if not cache_key or not settings.song_cache_channel_id:
             return
         db = get_database()
+        doc = {
+            "cache_key": cache_key,
+            "cache_key_type": key_type,
+            "title": title,
+            "artist": artist,
+            "duration": duration,
+            "file_size": file_size,
+            "telegram_file_id": file_id,
+            "thumbnail_file_id": thumbnail_file_id,
+            "download_link": download_link,
+            "created_at": datetime.now(timezone.utc),
+        }
+        if cache_message_id is not None:
+            doc["cache_message_id"] = cache_message_id
         await db["cached_songs"].update_one(
             {"cache_key": cache_key},
-            {"$set": {
-                "cache_key": cache_key,
-                "cache_key_type": key_type,
-                "title": title,
-                "artist": artist,
-                "duration": duration,
-                "file_size": file_size,
-                "telegram_file_id": file_id,
-                "thumbnail_file_id": thumbnail_file_id,
-                "download_link": download_link,
-                "created_at": datetime.now(timezone.utc),
-            }},
+            {"$set": doc},
             upsert=True,
         )
+        # Update L1 memory cache
+        _song_cache.set(cache_key, doc, ttl=300.0)
         logger.info("Cached song: %s - %s (%s)", artist, title, cache_key)
 
     async def upload_to_cache_channel(
@@ -114,10 +127,10 @@ class SongCache:
         artist: str,
         duration: int,
         thumb_path: Path | None = None,
-    ) -> tuple[str, str | None]:
+    ) -> tuple[int, str, str | None]:
         """Upload an audio file to the cache channel.
 
-        Returns (audio_file_id, thumbnail_file_id_or_None).
+        Returns (message_id, audio_file_id, thumbnail_file_id_or_None).
         Raises RuntimeError if SONG_CACHE_CHANNEL_ID is not configured.
         """
         if not settings.song_cache_channel_id:
@@ -136,12 +149,13 @@ class SongCache:
         thumbnail_file_id = None
         if message.audio and hasattr(message.audio, "thumbnail") and message.audio.thumbnail:
             thumbnail_file_id = message.audio.thumbnail.file_id
-        return audio.file_id, thumbnail_file_id
+        return message.id, audio.file_id, thumbnail_file_id
 
     async def invalidate_cache(self, cache_key: str) -> None:
         """Remove a song from the cache."""
         if not cache_key:
             return
+        _song_cache.delete(cache_key)
         db = get_database()
         result = await db["cached_songs"].delete_one({"cache_key": cache_key})
         if result.deleted_count:

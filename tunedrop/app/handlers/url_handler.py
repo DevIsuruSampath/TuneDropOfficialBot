@@ -15,7 +15,9 @@ _UNSUPPORTED_MSG = (
 
 
 def register(app: Client) -> None:
-    @app.on_message(filters.text & ~filters.command(["start", "help", "song", "myfiles", "cancel"]) & music_input)
+    _EXCLUDED_COMMANDS = ["start", "help", "song", "myfiles", "cancel", "admin", "ads", "stats", "pro", "grantpro", "revokepro", "userinfo"]
+
+    @app.on_message(filters.text & ~filters.command(_EXCLUDED_COMMANDS) & music_input)
     @force_sub
     @rate_limit
     @once_per_message
@@ -31,7 +33,7 @@ def register(app: Client) -> None:
 
     @app.on_message(
         filters.text
-        & ~filters.command(["start", "help", "song", "myfiles", "cancel"])
+        & ~filters.command(_EXCLUDED_COMMANDS)
         & ~music_input
         & filters.create(lambda _, __, m: bool(looks_like_url(m.text or "")))
     )

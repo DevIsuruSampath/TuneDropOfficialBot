@@ -4,12 +4,13 @@ import asyncio
 import threading
 
 from pymongo import ASCENDING, DESCENDING, AsyncMongoClient
+from pymongo.asynchronous.database import AsyncDatabase
 
 from tunedrop.app.core.config import settings
 
 
 _client: AsyncMongoClient | None = None
-_database = None
+_database: AsyncDatabase | None = None
 _init_lock: asyncio.Lock | None = None
 _thread_lock = threading.Lock()
 
@@ -35,9 +36,12 @@ async def init_database():
 
         client = AsyncMongoClient(
             settings.mongodb_uri,
-            maxIdleTimeMS=45000,
-            connectTimeoutMS=10000,
-            serverSelectionTimeoutMS=10000,
+            maxIdleTimeMS=30000,
+            minPoolSize=10,
+            maxPoolSize=50,
+            connectTimeoutMS=5000,
+            serverSelectionTimeoutMS=5000,
+            waitQueueTimeoutMS=5000,
             retryWrites=True,
             retryReads=True,
         )
@@ -47,6 +51,7 @@ async def init_database():
         await database["file_links"].create_index([("token", ASCENDING)], unique=True)
         await database["file_links"].create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
         await database["file_links"].create_index("created_at", expireAfterSeconds=86400)
+        await database["file_links"].create_index([("file_id", ASCENDING), ("expires_at", DESCENDING)])
         await database["user_files"].create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
         await database["user_files"].create_index("created_at", expireAfterSeconds=86400)
         await database["download_refs"].create_index([("ref", ASCENDING)], unique=True)
@@ -55,13 +60,14 @@ async def init_database():
         await database["active_tasks"].create_index([("user_id", ASCENDING)])
         await database["active_tasks"].create_index("created_at", expireAfterSeconds=86400)
         await database["cached_songs"].create_index([("cache_key", ASCENDING)], unique=True)
+        await database["users"].create_index([("user_id", ASCENDING)], unique=True)
 
         _client = client
         _database = database
         return _database
 
 
-def get_database():
+def get_database() -> AsyncDatabase:
     if _database is None:
         raise RuntimeError("MongoDB has not been initialized.")
     return _database

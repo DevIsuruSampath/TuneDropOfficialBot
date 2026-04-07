@@ -15,6 +15,7 @@ from pyrogram import Client
 from pyrogram.errors import FloodWait
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
+from tunedrop.app.core.config import settings
 from tunedrop.app.core.database import get_database
 from pyrogram.enums import ParseMode
 
@@ -33,7 +34,7 @@ DownloadCallable = Callable[[Client, Message, "DownloadTask"], Awaitable[None]]
 
 _RETRY_MARKUP = build_retry_keyboard()
 
-_MIN_EDIT_INTERVAL = 3.0
+_MIN_EDIT_INTERVAL = 4.0
 _FLOOD_BACKOFF_MAX = 60.0
 
 
@@ -69,21 +70,25 @@ class DownloadTask:
     _reply_markup: InlineKeyboardMarkup | None = field(default=None, repr=False)
     _last_markup: InlineKeyboardMarkup | None = field(default=None, repr=False)
     _pending: tuple[str, str | None] | None = field(default=None, repr=False)
-    _updating: bool = field(default=False, repr=False)
+    _update_lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
     _last_edit_time: float = field(default=0.0, repr=False)
     _flood_penalty: float = field(default=0.0, repr=False)
     _edit_dead: bool = field(default=False, repr=False)
 
-    async def update(self, text: str, parse_mode: str | None = None) -> None:
+    async def update(self, text: str | None, parse_mode: str | None = None) -> None:
         if self._edit_dead:
+            return
+        if text is None:
+            # None means "delete the progress message"
+            await self.delete()
             return
         if text == self.last_text and self._reply_markup is self._last_markup:
             return
         self._pending = (text, parse_mode)
-        if self._updating:
+
+        if self._update_lock.locked():
             return
-        self._updating = True
-        try:
+        async with self._update_lock:
             while self._pending is not None:
                 current_text, current_pm = self._pending
                 self._pending = None
@@ -130,14 +135,24 @@ class DownloadTask:
                     else:
                         # Don't update last_text — let the next call retry with the same text
                         logger.warning("Task %s: edit FAILED: %s | text: %.60s", self.task_id, exc, current_text[:60])
-        finally:
-            self._updating = False
+
+    async def delete(self) -> None:
+        """Delete the progress status message."""
+        if self._edit_dead:
+            return
+        self._edit_dead = True
+        try:
+            await self.status_message.delete()
+        except Exception:
+            pass
 
     def cancelled(self) -> bool:
         return self.cancel_event.is_set()
 
 
 class TaskRegistry:
+    _PERSIST_DEBOUNCE = 5.0  # seconds between persisted writes
+
     def __init__(self) -> None:
         self._tasks: dict[str, DownloadTask] = {}
         self._user_tasks: dict[int, set[str]] = {}
@@ -145,6 +160,8 @@ class TaskRegistry:
         self._queue: deque[str] = deque()
         self._pending_starts: dict[str, tuple[Client, Message, Any, DownloadCallable]] = {}
         self._failed: dict[int, tuple[Any, DownloadCallable, Client]] = {}
+        self._persist_dirty = False
+        self._persist_task: asyncio.Task | None = None
 
     @property
     def active_count(self) -> int:
@@ -175,7 +192,6 @@ class TaskRegistry:
 
         Queues if either the per-user limit or global limit is reached.
         """
-        from tunedrop.app.core.config import settings
         if self.get_user_active_count(user_id) >= settings.max_concurrent_tasks_per_user:
             return True
         if self.active_count >= settings.max_concurrent_tasks:
@@ -229,8 +245,6 @@ class TaskRegistry:
 
     async def _dequeue_next(self) -> None:
         """Start as many queued tasks as capacity allows."""
-        from tunedrop.app.core.config import settings
-
         started = True
         while started and self._queue:
             started = False
@@ -266,6 +280,7 @@ class TaskRegistry:
                 app, message, request, runner = start_params
                 self._queue.remove(task_id)
                 self._failed.pop(task.user_id, None)
+                self._user_active_sources[task.user_id] = request.source
                 task.worker = asyncio.create_task(self._run(app, message, task, request, runner))
                 started = True
                 break  # Re-evaluate from scratch after starting one
@@ -277,8 +292,6 @@ class TaskRegistry:
         await self._update_queue_positions()
 
     async def start_download(self, app: Client, message: Message, request: Any, runner: DownloadCallable) -> None:
-        from tunedrop.app.core.config import settings
-
         user_id = request.user_id
         await self._cleanup_user_tasks(user_id)
 
@@ -331,8 +344,6 @@ class TaskRegistry:
         await self._persist()
 
     async def retry_download(self, client: Client, message: Message, user_id: int) -> bool:
-        from tunedrop.app.core.config import settings
-
         await self._cleanup_user_tasks(user_id)
 
         failed = self._failed.pop(user_id, None)
@@ -381,8 +392,9 @@ class TaskRegistry:
     async def _run(self, app: Client, message: Message, task: DownloadTask, request: Any, runner: DownloadCallable) -> None:
         try:
             await runner(app, message, task)
-            task._reply_markup = None
-            await task.update(task.last_text, parse_mode=ParseMode.HTML)
+            # If handler set a custom markup (e.g. download button), don't overwrite it
+            if task._reply_markup is None:
+                await task.update(task.last_text, parse_mode=ParseMode.HTML)
         except asyncio.CancelledError:
             task._reply_markup = None
             try:
@@ -461,7 +473,21 @@ class TaskRegistry:
                 cancelled += 1
         return cancelled
 
-    async def _persist(self) -> None:
+    def mark_persist_dirty(self) -> None:
+        """Mark that task state has changed and needs persisting."""
+        self._persist_dirty = True
+        if self._persist_task is None or self._persist_task.done():
+            self._persist_task = asyncio.create_task(self._debounced_persist())
+
+    async def _debounced_persist(self) -> None:
+        """Wait 5s then persist, batching multiple rapid changes."""
+        await asyncio.sleep(self._PERSIST_DEBOUNCE)
+        if self._persist_dirty:
+            self._persist_dirty = False
+            await self._persist_now()
+
+    async def _persist_now(self) -> None:
+        """Actually write task state to MongoDB."""
         db = get_database()
         collection = db["active_tasks"]
         now = datetime.now(UTC)
@@ -484,12 +510,16 @@ class TaskRegistry:
         ]
 
         if operations:
-            await collection.bulk_write(operations)
+            await collection.bulk_write(operations, ordered=False)
 
         if active_task_ids:
             await collection.delete_many({"task_id": {"$nin": active_task_ids}})
         else:
             await collection.delete_many({})
+
+    async def _persist(self) -> None:
+        """Debounced persist — coalesces rapid state changes."""
+        self.mark_persist_dirty()
 
 
 task_registry = TaskRegistry()

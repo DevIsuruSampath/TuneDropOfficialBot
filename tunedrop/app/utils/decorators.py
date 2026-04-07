@@ -11,6 +11,7 @@ from pyrogram.enums import ParseMode
 from pyrogram.types import Message
 
 from tunedrop.app.core.config import settings
+from tunedrop.app.utils.ui_utils import build_force_sub_message
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +30,8 @@ _RATE_LIMIT_PRUNE_INTERVAL = 300  # prune stale entries every 5 minutes
 # Cached channel invite link (resolved once)
 _channel_link_cache: str | None = None
 
-# Membership cache: {user_id: (is_member, timestamp)}
-_membership_cache: dict[int, tuple[bool, float]] = {}
-_MEMBERSHIP_CACHE_TTL = 300  # 5 minutes
+_sub_cache: dict[int, tuple[float, bool]] = {}
+_SUB_CACHE_TTL = 300  # 5 minutes
 
 
 def _msg_key(message: Message) -> tuple[int, int]:
@@ -150,14 +150,14 @@ async def _get_channel_link(client: Any) -> str:
 def force_sub(handler: Handler) -> Handler:
     """Block non-members from using the handler if FORCE_SUB is enabled.
 
-    Requires the Pyrogram client as the first argument (`_` / `client`).
+    Always checks Telegram API for membership. Uses short cache (30s)
+    for positive results to detect when users leave the channel.
     Admins bypass the check.
     """
     @wraps(handler)
     async def wrapper(_, message: Message, *args: Any, **kwargs: Any) -> Any:
         # Feature disabled — pass through
         if not settings.force_sub_enabled or not settings.force_sub_channel_id:
-            logger.debug("Force-sub: disabled, passing through")
             return await handler(_, message, *args, **kwargs)
 
         user = message.from_user
@@ -168,38 +168,18 @@ def force_sub(handler: Handler) -> Handler:
         if user.id in settings.admin_user_ids:
             return await handler(_, message, *args, **kwargs)
 
-        # Check membership cache first
-        now = time.monotonic()
-        cached = _membership_cache.get(user.id)
-        if cached:
-            is_cached_member, cached_at = cached
-            if now - cached_at < _MEMBERSHIP_CACHE_TTL:
-                if is_cached_member:
-                    return await handler(_, message, *args, **kwargs)
-                # Cached non-member: still show the prompt
-                channel_link = await _get_channel_link(_)
-                from tunedrop.app.utils.ui_utils import build_force_sub_message
-                text, markup = build_force_sub_message(channel_link)
-                await message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
-                return None
-
-        # Query Telegram API
+        # Always query Telegram API — membership can change at any time
         try:
             member = await _.get_chat_member(settings.force_sub_channel_id, user.id)
             is_member = member is not None and member.status.name not in ("LEFT", "BANNED")
-            logger.debug("Force-sub: user=%s status=%s is_member=%s", user.id, member.status.name, is_member)
-        except Exception as exc:
-            logger.warning("Force-sub: user=%s exception: %s", user.id, exc)
+        except Exception:
             is_member = False
-
-        # Update cache
-        _membership_cache[user.id] = (is_member, now)
 
         if is_member:
             return await handler(_, message, *args, **kwargs)
 
+        # Not a member — show sub prompt
         channel_link = await _get_channel_link(_)
-        from tunedrop.app.utils.ui_utils import build_force_sub_message
         text, markup = build_force_sub_message(channel_link)
         await message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
         return None

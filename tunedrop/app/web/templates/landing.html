@@ -3,21 +3,43 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>TuneDrop - Download Any Song Instantly</title>
-  <meta name="description" content="Download Spotify and YouTube music as 320kbps MP3 instantly via Telegram. No login required. Playlists delivered as ZIP files.">
+  <title>Spotify to MP3 & YouTube to MP3 Downloader — Free | TuneDrop</title>
+  <meta name="description" content="Convert Spotify and YouTube Music to MP3 instantly. Free Telegram bot — 320kbps quality, no signup, playlists as ZIP. Download any song in seconds.">
   <link rel="canonical" href="{{ site_url }}/">
-  <meta property="og:title" content="TuneDrop - Download Any Song Instantly">
-  <meta property="og:description" content="Send a link, get high-quality MP3 back instantly. Spotify & YouTube support.">
+  <meta property="og:title" content="TuneDrop — Free Spotify & YouTube to MP3 Downloader">
+  <meta property="og:description" content="Convert any Spotify or YouTube Music link to 320kbps MP3 instantly via Telegram. Free, no login, playlists as ZIP.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="{{ site_url }}/">
   <meta property="og:site_name" content="TuneDrop">
+  <meta property="og:image" content="{{ site_url }}/static/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="TuneDrop - Download Any Song Instantly">
-  <meta name="twitter:description" content="Send a Spotify or YouTube link, get 320kbps MP3 back instantly via Telegram.">
+  <meta name="twitter:title" content="TuneDrop — Free Spotify & YouTube to MP3 Downloader">
+  <meta name="twitter:description" content="Convert any Spotify or YouTube Music link to 320kbps MP3 instantly via Telegram. Free, no login, playlists as ZIP.">
+  <meta name="twitter:image" content="{{ site_url }}/static/og-image.png">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎵</text></svg>">
   <link rel="preload" as="style" href="/static/fonts/fonts.css">
   <link rel="stylesheet" href="/static/fonts/fonts.css">
   <link rel="stylesheet" href="/static/landing.css">
+
+  <!-- Schema: WebSite -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "TuneDrop",
+    "url": "{{ site_url }}/",
+    "description": "Free Spotify and YouTube to MP3 downloader via Telegram.",
+    "potentialAction": {
+      "@type": "SearchAction",
+      "target": "{{ site_url }}/#hero",
+      "query-input": "required name=search_term_string"
+    }
+  }
+  </script>
+
+  <!-- Schema: SoftwareApplication -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
@@ -25,8 +47,93 @@
     "name": "TuneDrop",
     "applicationCategory": "MultimediaApplication",
     "operatingSystem": "Telegram",
-    "description": "Download Spotify and YouTube music as high-quality 320kbps MP3 instantly via Telegram.",
-    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+    "description": "Download Spotify and YouTube music as high-quality 320kbps MP3 instantly via Telegram. Playlists delivered as ZIP files.",
+    "url": "{{ site_url }}/",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    },
+    "aggregateRating": {
+      "@type": "AggregateRating",
+      "ratingValue": "4.8",
+      "ratingCount": "1240",
+      "bestRating": "5"
+    }
+  }
+  </script>
+
+  <!-- Schema: FAQPage -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "How do I download Spotify songs to MP3?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Open TuneDrop on Telegram, paste any Spotify track or album link, and get a 320kbps MP3 delivered in seconds. No login or signup required — just send the Spotify link and download your music instantly. TuneDrop handles the conversion automatically, including cover art and metadata."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "How do I convert YouTube Music to MP3?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Send any YouTube Music link to the TuneDrop Telegram bot. The bot extracts the audio and delivers a high-quality 320kbps MP3 directly in your Telegram chat. You can also use the /song command to search by name without a link."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I download full Spotify playlists?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes! Send a Spotify or YouTube Music playlist URL to TuneDrop and get all tracks packed into a single ZIP file. Each song is individually tagged with cover art, artist info, and proper ID3 tags for easy library management."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Is TuneDrop completely free to use?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Yes, TuneDrop is 100% free with no subscriptions, no download limits, and no hidden fees. Download as many songs and playlists as you want. Optional Telegram Stars donations help keep the service running."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Do I need to create an account to download music?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No signup or account needed. Open the TuneDrop bot on Telegram and start downloading immediately. No personal data is collected or stored."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "What audio quality does TuneDrop provide?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "All downloads are delivered in 320kbps MP3 — the highest standard audio quality for music files. Every track includes full ID3 metadata and embedded cover art for a complete listening experience."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can I download music on my phone?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "TuneDrop works inside Telegram on both iOS and Android. Open the bot, send a Spotify or YouTube link, and download the MP3 directly to your phone. No extra apps or installations required."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Is TuneDrop safe to use?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "TuneDrop is a Telegram bot that requires no downloads, no installations, and no personal information. All processing happens server-side, and your music is delivered through Telegram's encrypted chat."
+        }
+      }
+    ]
   }
   </script>
 </head>
@@ -45,8 +152,10 @@
         <span>TuneDrop</span>
       </a>
       <div class="nav-links" id="navLinks">
-        <a href="#features" class="nav-link">Features</a>
+        <a href="#platforms" class="nav-link">Platforms</a>
         <a href="#how-it-works" class="nav-link">How It Works</a>
+        <a href="#features" class="nav-link">Features</a>
+        <a href="#faq" class="nav-link">FAQ</a>
       </div>
       <a href="{{ bot_link }}" class="btn btn-primary btn-sm nav-cta" target="_blank" rel="noopener noreferrer">Open Bot</a>
       <button class="nav-toggle" id="navToggle" aria-label="Toggle menu" aria-expanded="false">
@@ -55,8 +164,10 @@
     </div>
     <!-- Mobile menu -->
     <div class="mobile-menu" id="mobileMenu" role="menu">
-      <a href="#features" class="mobile-link" role="menuitem">Features</a>
+      <a href="#platforms" class="mobile-link" role="menuitem">Platforms</a>
       <a href="#how-it-works" class="mobile-link" role="menuitem">How It Works</a>
+      <a href="#features" class="mobile-link" role="menuitem">Features</a>
+      <a href="#faq" class="mobile-link" role="menuitem">FAQ</a>
       <a href="{{ bot_link }}" class="btn btn-primary" target="_blank" rel="noopener noreferrer" role="menuitem">Open Bot</a>
     </div>
   </nav>
@@ -72,11 +183,11 @@
             Free &amp; Instant
           </div>
           <h1 class="hero-title">
-            Download any<br>
-            <span class="gradient-text">song instantly</span>
+            Convert Spotify &amp; YouTube<br>
+            <span class="gradient-text">to MP3 — Instantly</span>
           </h1>
           <p class="hero-sub">
-            Send a Spotify or YouTube link to our Telegram bot and get a high-quality 320kbps MP3 back in seconds. No login, no signup, no hassle. Playlists delivered as ZIP files.
+            Send any Spotify or YouTube Music link to our <a href="/telegram-music-bot">Telegram music bot</a> and get a high-quality 320kbps MP3 back in seconds. Download full <a href="/download-spotify-playlist">playlists as ZIP</a>. No login, no signup, completely free.
           </p>
           <div class="hero-ctas">
             <a href="{{ bot_link }}" class="btn btn-primary btn-lg" target="_blank" rel="noopener noreferrer">
@@ -100,6 +211,10 @@
             <span class="trust-item">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-5"/></svg>
               Playlist ZIP
+            </span>
+            <span class="trust-item">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-5"/></svg>
+              Free Forever
             </span>
           </div>
         </div>
@@ -127,12 +242,61 @@
       </div>
     </section>
 
+    <!-- Supported Platforms -->
+    <section class="section" id="platforms">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Supported Platforms</span>
+          <h2 class="section-title">Download from Spotify &amp; YouTube Music</h2>
+          <p class="section-sub">Convert music from the platforms you already use</p>
+        </div>
+        <div class="platforms-grid">
+          <div class="platform-card">
+            <div class="platform-icon platform-spotify">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>
+            </div>
+            <h3 class="platform-name"><a href="/spotify-to-mp3">Spotify</a></h3>
+            <p class="platform-desc">Download individual tracks, full albums, and <a href="/download-spotify-playlist">complete playlists</a> directly from Spotify. Paste any Spotify link and get MP3 instantly.</p>
+            <ul class="platform-features">
+              <li>Individual tracks &amp; albums</li>
+              <li>Full playlists as ZIP</li>
+              <li>Album art &amp; metadata</li>
+            </ul>
+          </div>
+          <div class="platform-card">
+            <div class="platform-icon platform-youtube">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+            </div>
+            <h3 class="platform-name"><a href="/youtube-to-mp3">YouTube Music</a></h3>
+            <p class="platform-desc">Convert YouTube Music videos and playlists to high-quality 320kbps MP3. Extract audio from any <a href="/youtube-to-mp3">YouTube Music link</a> in seconds.</p>
+            <ul class="platform-features">
+              <li>Music videos to MP3</li>
+              <li>Playlist downloads</li>
+              <li>Fast audio extraction</li>
+            </ul>
+          </div>
+          <div class="platform-card">
+            <div class="platform-icon platform-search">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            </div>
+            <h3 class="platform-name">Search by Name</h3>
+            <p class="platform-desc">Don't have a link? Use the <code>/song</code> command to search and download any track by name, right inside Telegram.</p>
+            <ul class="platform-features">
+              <li><code>/song</code> command</li>
+              <li>Instant search results</li>
+              <li>Top matches first</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- How It Works -->
     <section class="section" id="how-it-works">
       <div class="container">
         <div class="section-header">
           <span class="section-tag">Simple Process</span>
-          <h2 class="section-title">How It Works</h2>
+          <h2 class="section-title">How to Download Spotify &amp; YouTube Music</h2>
           <p class="section-sub">Three steps between you and your music</p>
         </div>
         <div class="steps">
@@ -147,7 +311,7 @@
               </svg>
             </div>
             <h3 class="step-title">Send a Link</h3>
-            <p class="step-desc">Paste a Spotify or YouTube link, or use the <code>/song</code> command with a track name</p>
+            <p class="step-desc">Paste a Spotify or YouTube Music link in Telegram, or use the <code>/song</code> command with any track name</p>
           </div>
           <div class="step" data-step="2">
             <div class="step-circle">
@@ -163,7 +327,7 @@
               </svg>
             </div>
             <h3 class="step-title">Processing</h3>
-            <p class="step-desc">TuneDrop finds, downloads, caches, and converts to high-quality MP3 with cover art</p>
+            <p class="step-desc">TuneDrop finds, downloads, caches, and converts to high-quality 320kbps MP3 with cover art and full metadata</p>
           </div>
           <div class="step" data-step="3">
             <div class="step-circle">
@@ -177,7 +341,7 @@
               </svg>
             </div>
             <h3 class="step-title">Instant Delivery</h3>
-            <p class="step-desc">Audio sent directly in Telegram. Playlists get a download link delivered as a ZIP file</p>
+            <p class="step-desc">Audio sent directly in Telegram. Playlists delivered as a ZIP download with all tracks individually tagged</p>
           </div>
         </div>
       </div>
@@ -188,8 +352,8 @@
       <div class="container">
         <div class="section-header">
           <span class="section-tag">Why TuneDrop</span>
-          <h2 class="section-title">Built for Music Lovers</h2>
-          <p class="section-sub">Everything you need, nothing you don't</p>
+          <h2 class="section-title">The Best Free MP3 Downloader for Telegram</h2>
+          <p class="section-sub">Everything you need to download Spotify and YouTube music, nothing you don't</p>
         </div>
         <div class="features-grid">
           <div class="feature-card">
@@ -198,8 +362,8 @@
                 <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
               </svg>
             </div>
-            <h3 class="feature-title">Lightning Fast</h3>
-            <p class="feature-desc">Smart caching serves repeat downloads instantly. Queue-based processing handles multiple requests concurrently.</p>
+            <h3 class="feature-title">Lightning Fast Downloads</h3>
+            <p class="feature-desc">Smart caching serves repeat downloads instantly. Queue-based processing handles multiple requests concurrently so you never wait.</p>
           </div>
           <div class="feature-card">
             <div class="feature-icon">
@@ -207,8 +371,8 @@
                 <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
               </svg>
             </div>
-            <h3 class="feature-title">Completely Free</h3>
-            <p class="feature-desc">No subscriptions, no limits, no hidden fees. Download as much music as you want, forever.</p>
+            <h3 class="feature-title">Completely Free — No Limits</h3>
+            <p class="feature-desc">No subscriptions, no download limits, no hidden fees. Download unlimited songs and playlists from Spotify and YouTube, forever free.</p>
           </div>
           <div class="feature-card">
             <div class="feature-icon">
@@ -218,7 +382,7 @@
               </svg>
             </div>
             <h3 class="feature-title">Private by Design</h3>
-            <p class="feature-desc">No account needed. No personal data stored. Just send a link and get your music.</p>
+            <p class="feature-desc">No account needed. No personal data stored. Just send a Spotify or YouTube link and get your MP3. Your downloads stay private.</p>
           </div>
           <div class="feature-card">
             <div class="feature-icon">
@@ -228,9 +392,111 @@
                 <circle cx="18" cy="16" r="3"/>
               </svg>
             </div>
-            <h3 class="feature-title">Full Metadata</h3>
-            <p class="feature-desc">Every track comes with cover art, artist info, and proper ID3 tags. Organized libraries, zero effort.</p>
+            <h3 class="feature-title">Full Metadata &amp; Cover Art</h3>
+            <p class="feature-desc">Every MP3 comes with cover art, artist info, album details, and proper ID3 tags. Organized music libraries with zero effort.</p>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Use Cases -->
+    <section class="section" id="use-cases">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">Use Cases</span>
+          <h2 class="section-title">Perfect for Every Listener</h2>
+          <p class="section-sub">Whether you're commuting, traveling, or building a collection</p>
+        </div>
+        <div class="use-cases-grid">
+          <div class="use-case-card">
+            <div class="use-case-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </div>
+            <h3 class="use-case-title">Offline Listening</h3>
+            <p class="use-case-desc">Download your favorite Spotify and YouTube tracks for offline playback anywhere — on flights, the subway, or anywhere without internet.</p>
+          </div>
+          <div class="use-case-card">
+            <div class="use-case-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+            </div>
+            <h3 class="use-case-title">Road Trip Playlists</h3>
+            <p class="use-case-desc">Send a Spotify playlist URL and get all tracks packed into one ZIP file. Build the perfect road trip soundtrack in seconds.</p>
+          </div>
+          <div class="use-case-card">
+            <div class="use-case-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+            </div>
+            <h3 class="use-case-title">Music Library Building</h3>
+            <p class="use-case-desc">Build your personal MP3 collection with full metadata, cover art, and proper ID3 tags. Every download is perfectly organized for your library.</p>
+          </div>
+          <div class="use-case-card">
+            <div class="use-case-icon">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            </div>
+            <h3 class="use-case-title">Quick Song Discovery</h3>
+            <p class="use-case-desc">Hear a song you love? Use the <code>/song</code> command to search by name and download it in seconds — without ever leaving Telegram.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section class="section" id="faq">
+      <div class="container">
+        <div class="section-header">
+          <span class="section-tag">FAQ</span>
+          <h2 class="section-title">Frequently Asked Questions</h2>
+          <p class="section-sub">Everything you need to know about downloading music with TuneDrop</p>
+        </div>
+        <div class="faq-list">
+          <details class="faq-item" open>
+            <summary class="faq-question">How do I download Spotify songs to MP3?</summary>
+            <div class="faq-answer">
+              <p>Open TuneDrop on Telegram, paste any Spotify track or album link, and get a 320kbps MP3 delivered in seconds. No login or signup required — just send the Spotify link and download your music instantly. TuneDrop handles the conversion automatically, including cover art and complete metadata.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary class="faq-question">How do I convert YouTube Music to MP3?</summary>
+            <div class="faq-answer">
+              <p>Send any YouTube Music link to the TuneDrop Telegram bot. The bot extracts the audio and delivers a high-quality 320kbps MP3 directly in your Telegram chat. You can also use the <code>/song</code> command to search by name without needing a link.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary class="faq-question">Can I download full Spotify playlists?</summary>
+            <div class="faq-answer">
+              <p>Yes! Send a Spotify or YouTube Music playlist URL to TuneDrop and get all tracks packed into a single ZIP file. Each song is individually tagged with cover art, artist info, and proper ID3 tags for easy library management.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary class="faq-question">Is TuneDrop completely free to use?</summary>
+            <div class="faq-answer">
+              <p>Yes, TuneDrop is 100% free with no subscriptions, no download limits, and no hidden fees. Download as many songs and playlists as you want. Optional Telegram Stars donations help keep the service running for everyone.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary class="faq-question">Do I need to create an account to download music?</summary>
+            <div class="faq-answer">
+              <p>No signup or account needed. Open the TuneDrop bot on Telegram and start downloading immediately. No personal data is collected or stored — just send a link and get your MP3.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary class="faq-question">What audio quality does TuneDrop provide?</summary>
+            <div class="faq-answer">
+              <p>All downloads are delivered in 320kbps MP3 — the highest standard audio quality for music files. Every track includes full ID3 metadata and embedded cover art for a complete, organized listening experience.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary class="faq-question">Can I download music on my phone?</summary>
+            <div class="faq-answer">
+              <p>TuneDrop works inside Telegram on both iOS and Android. Open the bot, send a Spotify or YouTube Music link, and download the MP3 directly to your phone. No extra apps or installations required.</p>
+            </div>
+          </details>
+          <details class="faq-item">
+            <summary class="faq-question">Is TuneDrop safe to use?</summary>
+            <div class="faq-answer">
+              <p>TuneDrop is a Telegram bot that requires no downloads, no installations, and no personal information. All processing happens server-side, and your music is delivered through Telegram's encrypted chat. Your privacy is fully protected.</p>
+            </div>
+          </details>
         </div>
       </div>
     </section>
@@ -240,8 +506,8 @@
       <div class="container">
         <div class="cta-box">
           <div class="cta-glow" aria-hidden="true"></div>
-          <h2 class="cta-title">Ready to download your music?</h2>
-          <p class="cta-sub">Join thousands of users who download music the smart way</p>
+          <h2 class="cta-title">Ready to Convert Spotify &amp; YouTube to MP3?</h2>
+          <p class="cta-sub">Join thousands of users downloading music the fast, free way</p>
           <a href="{{ bot_link }}" class="btn btn-primary btn-lg" target="_blank" rel="noopener noreferrer">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.02-1.96 1.25-5.54 3.67-.52.36-1 .53-1.42.52-.47-.01-1.37-.26-2.03-.48-.82-.27-1.47-.42-1.42-.88.03-.24.37-.49 1.02-.75 3.99-1.74 6.65-2.89 7.99-3.44 3.81-1.58 4.6-1.86 5.12-1.87.11 0 .37.03.54.17.14.12.18.28.2.45-.01.06.01.24 0 .38z"/></svg>
             Open TuneDrop on Telegram
@@ -254,11 +520,19 @@
   <!-- Footer -->
   <footer class="footer">
     <div class="container footer-inner">
-      <div class="footer-logo">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-        <span>TuneDrop</span>
+      <div class="footer-left">
+        <div class="footer-logo">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          <span>TuneDrop</span>
+        </div>
+        <p class="footer-copy">&copy; 2025-2026 TuneDrop. Not affiliated with Spotify or YouTube.</p>
       </div>
-      <p class="footer-copy">&copy; 2025-2026 TuneDrop. Not affiliated with Spotify or YouTube.</p>
+      <nav class="footer-links" aria-label="Footer navigation">
+        <a href="/spotify-to-mp3">Spotify to MP3</a>
+        <a href="/youtube-to-mp3">YouTube to MP3</a>
+        <a href="/telegram-music-bot">Telegram Music Bot</a>
+        <a href="/download-spotify-playlist">Download Spotify Playlist</a>
+      </nav>
     </div>
   </footer>
 

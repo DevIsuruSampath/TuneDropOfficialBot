@@ -2,10 +2,21 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+import json
+
+try:
+    import orjson as _json
+    def _json_loads(s: str) -> Any:
+        return _json.loads(s)
+except ImportError:
+    def _json_loads(s: str) -> Any:
+        return json.loads(s)
 import logging
+import os
 import re
 import shlex
 import shutil
+import signal
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -44,11 +55,13 @@ from tunedrop.app.utils.ui_utils import (
     escape_html,
 )
 from tunedrop.app.utils.validators import InputType
+from tunedrop.app.utils.perf import timed
 
 
 logger = logging.getLogger(__name__)
 
-_TELEGRAM_BOT_UPLOAD_LIMIT = 2 * 1024 * 1024 * 1024  # 2GB
+_SPOTDL_BIN = shutil.which("spotdl") or "spotdl"  # resolved once at import time
+_TELEGRAM_BOT_UPLOAD_LIMIT = 4 * 1024 * 1024 * 1024  # 4GB (MTProto/Premium bot limit)
 _PROGRESS_UPDATE_INTERVAL = 4.0  # seconds between Telegram message edits
 _CONVERSION_TIMEOUT_BASE = 900  # minimum seconds for FFmpeg audio conversion
 _MAX_AUDIO_DURATION = 3 * 3600  # 3 hours
@@ -122,6 +135,7 @@ class MusicDownloadManager:
         else:
             await self._download_spotify_track(app, message, task)
 
+    @timed("download_spotify_track")
     async def _download_spotify_track(self, app: Client, message: Message, task: DownloadTask) -> None:
         # Check cache first for Spotify/YouTube URL tracks
         cache_key, cache_key_type = generate_cache_key(task.request.source, task.request.input_type)
@@ -133,7 +147,7 @@ class MusicDownloadManager:
                     await task.update(build_progress_message(DownloadPhase.COMPLETED), parse_mode=ParseMode.HTML)
                     return
                 except Exception:
-                    logger.warning("Cached file send failed for %s, re-downloading", cache_key)
+                    logger.warning("Cached file send failed for %s, re-downloading", cache_key, exc_info=True)
                     await song_cache.invalidate_cache(cache_key)
 
         work_dir = await ensure_clean_directory(settings.temp_dir / f"{task.user_id}_{int(time.time())}")
@@ -178,16 +192,15 @@ class MusicDownloadManager:
 
                 if not yt_url:
                     yt_url = f"ytsearch1:{task.request.source}"
-                if yt_url:
-                    if task.request.input_type == InputType.SEARCH:
-                        await task.update(build_progress_message(DownloadPhase.SEARCHING), parse_mode=ParseMode.HTML)
-                    else:
-                        await task.update(build_progress_message(DownloadPhase.SEARCHING, details="Trying alternative source..."), parse_mode=ParseMode.HTML)
-                    try:
-                        audio_file, thumb_url, yt_info = await self._run_ytdlp_download(task, yt_url, work_dir)
-                    except Exception:
-                        logger.exception("yt-dlp download failed")
-                    audio_file = find_first_file(work_dir, suffix=".mp3")
+                if task.request.input_type == InputType.SEARCH:
+                    await task.update(build_progress_message(DownloadPhase.SEARCHING), parse_mode=ParseMode.HTML)
+                else:
+                    await task.update(build_progress_message(DownloadPhase.SEARCHING, details="Trying alternative source..."), parse_mode=ParseMode.HTML)
+                try:
+                    audio_file, thumb_url, yt_info = await self._run_ytdlp_download(task, yt_url, work_dir)
+                except Exception:
+                    logger.exception("yt-dlp download failed")
+                audio_file = find_first_file(work_dir, suffix=".mp3")
 
             if not audio_file:
                 raise RuntimeError("Could not download the track. Please try again later.")
@@ -209,7 +222,7 @@ class MusicDownloadManager:
             if cache_key:
                 try:
                     await task.update(build_progress_message(DownloadPhase.UPLOADING), parse_mode=ParseMode.HTML)
-                    audio_file_id, thumb_file_id = await song_cache.upload_to_cache_channel(
+                    cache_msg_id, audio_file_id, thumb_file_id = await song_cache.upload_to_cache_channel(
                         app, audio_file, metadata.title, metadata.artist, metadata.duration, metadata.thumbnail_path,
                     )
                     file_name = f"{_build_display_name(metadata.artist, metadata.title)}.mp3"
@@ -217,7 +230,7 @@ class MusicDownloadManager:
                         payload={
                             "user_id": task.user_id,
                             "chat_id": settings.song_cache_channel_id,
-                            "message_id": 0,
+                            "message_id": cache_msg_id,
                             "file_id": audio_file_id,
                             "file_name": file_name,
                             "file_size": file_size,
@@ -234,6 +247,7 @@ class MusicDownloadManager:
                         file_size=file_size,
                         thumbnail_file_id=thumb_file_id,
                         download_link=download_url,
+                        cache_message_id=cache_msg_id,
                     )
                 except Exception:
                     logger.exception("Failed to cache song, sending directly to user")
@@ -425,26 +439,28 @@ class MusicDownloadManager:
             await build_zip(playlist_dir, zip_path)
             zip_chat_id = settings.private_channel_id or settings.song_cache_channel_id
             upload = await upload_zip_to_storage(app, zip_path, caption=f"Playlist archive for user {task.user_id}", chat_id=zip_chat_id)
-            link = await link_store.create_ref(
+            ref = await link_store.create_ref(
                 payload={
                     "user_id": task.user_id,
                     "chat_id": zip_chat_id,
-                    "message_id": 0,
+                    "message_id": upload.message_id,
                     "file_id": upload.file_id,
                     "file_name": upload.file_name,
                     "file_size": upload.file_size,
                 },
             )
-            link = f"{settings.download_base_url.rstrip('/')}/generate/{link}"
+            link = f"{settings.download_base_url.rstrip('/')}/generate/{ref}"
+            completion_text, completion_markup = build_playlist_completion(
+                track_count=len(tracks),
+                file_size=upload.file_size,
+                download_link=link,
+                cached_count=cached_count,
+                downloaded_count=len(newly_downloaded),
+                failed_count=failed_count,
+            )
+            task._reply_markup = completion_markup
             await task.update(
-                build_playlist_completion(
-                    track_count=len(tracks),
-                    file_size=upload.file_size,
-                    download_link=link,
-                    cached_count=cached_count,
-                    downloaded_count=len(newly_downloaded),
-                    failed_count=failed_count,
-                ),
+                completion_text,
                 parse_mode=ParseMode.HTML,
             )
         finally:
@@ -463,6 +479,7 @@ class MusicDownloadManager:
         else:
             await self._download_youtube_track(app, message, task, info)
 
+    @timed("download_youtube_track")
     async def _download_youtube_track(self, app: Client, message: Message, task: DownloadTask, info: dict[str, Any]) -> None:
         # Check cache first
         cache_key, cache_key_type = generate_cache_key(task.request.source, task.request.input_type, info)
@@ -474,7 +491,7 @@ class MusicDownloadManager:
                     await task.update(build_progress_message(DownloadPhase.COMPLETED), parse_mode=ParseMode.HTML)
                     return
                 except Exception:
-                    logger.warning("Cached file send failed for %s, re-downloading", cache_key)
+                    logger.warning("Cached file send failed for %s, re-downloading", cache_key, exc_info=True)
                     await song_cache.invalidate_cache(cache_key)
 
         work_dir = await ensure_clean_directory(settings.temp_dir / f"yt_{task.user_id}_{int(time.time())}")
@@ -499,7 +516,7 @@ class MusicDownloadManager:
             if cache_key:
                 try:
                     await task.update(build_progress_message(DownloadPhase.UPLOADING), parse_mode=ParseMode.HTML)
-                    audio_file_id, thumb_file_id = await song_cache.upload_to_cache_channel(
+                    cache_msg_id, audio_file_id, thumb_file_id = await song_cache.upload_to_cache_channel(
                         app, audio_file, metadata.title, metadata.artist, metadata.duration, thumb_path,
                     )
                     file_name = f"{_build_display_name(metadata.artist, metadata.title)}.mp3"
@@ -507,7 +524,7 @@ class MusicDownloadManager:
                         payload={
                             "user_id": task.user_id,
                             "chat_id": settings.song_cache_channel_id,
-                            "message_id": 0,
+                            "message_id": cache_msg_id,
                             "file_id": audio_file_id,
                             "file_name": file_name,
                             "file_size": file_size,
@@ -524,6 +541,7 @@ class MusicDownloadManager:
                         file_size=file_size,
                         thumbnail_file_id=thumb_file_id,
                         download_link=download_url,
+                        cache_message_id=cache_msg_id,
                     )
                 except Exception:
                     logger.exception("Failed to cache song, sending directly to user")
@@ -670,22 +688,24 @@ class MusicDownloadManager:
                 payload={
                     "user_id": task.user_id,
                     "chat_id": zip_chat_id,
-                    "message_id": 0,
+                    "message_id": upload.message_id,
                     "file_id": upload.file_id,
                     "file_name": upload.file_name,
                     "file_size": upload.file_size,
                 },
             )
             link = f"{settings.download_base_url.rstrip('/')}/generate/{link}"
+            completion_text, completion_markup = build_playlist_completion(
+                track_count=len(tracks),
+                file_size=upload.file_size,
+                download_link=link,
+                cached_count=cached_count,
+                downloaded_count=len(newly_downloaded),
+                failed_count=failed_count,
+            )
+            task._reply_markup = completion_markup
             await task.update(
-                build_playlist_completion(
-                    track_count=len(tracks),
-                    file_size=upload.file_size,
-                    download_link=link,
-                    cached_count=cached_count,
-                    downloaded_count=len(newly_downloaded),
-                    failed_count=failed_count,
-                ),
+                completion_text,
                 parse_mode=ParseMode.HTML,
             )
         finally:
@@ -723,11 +743,9 @@ class MusicDownloadManager:
 
     async def _get_spotify_playlist_track_urls(self, task: DownloadTask, out_dir: Path) -> list[str]:
         """Extract individual track URLs from a Spotify playlist using spotdl save."""
-        import json
-
         save_file = out_dir / "_tracks.spotdl"
         cmd = [
-            shutil.which("spotdl") or "spotdl",
+            _SPOTDL_BIN,
             "save",
             task.request.source,
             "--save-file", str(save_file),
@@ -747,7 +765,7 @@ class MusicDownloadManager:
             return []
         if save_file.exists():
             try:
-                data = json.loads(save_file.read_text())
+                data = _json_loads(save_file.read_text())
                 urls = [song["url"] for song in data if isinstance(song, dict) and "url" in song]
                 return urls
             except (json.JSONDecodeError, KeyError):
@@ -796,9 +814,9 @@ class MusicDownloadManager:
                             thumb_url, track_path.parent / f"_cthumb_{i}.jpg",
                         )
                     except Exception:
-                        pass
+                        logger.debug("Thumbnail extraction failed for track %d", i)
 
-                audio_file_id, thumb_file_id = await song_cache.upload_to_cache_channel(
+                cache_msg_id, audio_file_id, thumb_file_id = await song_cache.upload_to_cache_channel(
                     app, track_path, metadata.title, metadata.artist, metadata.duration, thumb_path,
                 )
                 file_size = track_path.stat().st_size
@@ -806,7 +824,7 @@ class MusicDownloadManager:
                     payload={
                         "user_id": task.user_id,
                         "chat_id": settings.song_cache_channel_id,
-                        "message_id": 0,
+                        "message_id": cache_msg_id,
                         "file_id": audio_file_id,
                         "file_name": f"{_build_display_name(metadata.artist, metadata.title)}.mp3",
                         "file_size": file_size,
@@ -823,6 +841,7 @@ class MusicDownloadManager:
                     file_size=file_size,
                     thumbnail_file_id=thumb_file_id,
                     download_link=download_url,
+                    cache_message_id=cache_msg_id,
                 )
 
                 if thumb_path:
@@ -864,7 +883,7 @@ class MusicDownloadManager:
                 if not cache_key or await song_cache.get_cached_song(cache_key):
                     continue
 
-                audio_file_id, thumb_file_id = await song_cache.upload_to_cache_channel(
+                cache_msg_id, audio_file_id, thumb_file_id = await song_cache.upload_to_cache_channel(
                     app, track_path, metadata.title, metadata.artist, metadata.duration,
                 )
                 file_size = track_path.stat().st_size
@@ -872,7 +891,7 @@ class MusicDownloadManager:
                     payload={
                         "user_id": task.user_id,
                         "chat_id": settings.song_cache_channel_id,
-                        "message_id": 0,
+                        "message_id": cache_msg_id,
                         "file_id": audio_file_id,
                         "file_name": f"{_build_display_name(metadata.artist, metadata.title)}.mp3",
                         "file_size": file_size,
@@ -889,6 +908,7 @@ class MusicDownloadManager:
                     file_size=file_size,
                     thumbnail_file_id=thumb_file_id,
                     download_link=download_url,
+                    cache_message_id=cache_msg_id,
                 )
                 cached_count += 1
             except Exception:
@@ -964,17 +984,23 @@ class MusicDownloadManager:
                 _cached_bot_username = me.username
                 return _cached_bot_username
         except Exception:
-            pass
+            logger.debug("Failed to resolve bot username")
         return None
 
     async def _send_cached_audio(self, app: Client, message: Message, cached: dict[str, Any], task: DownloadTask) -> None:
         """Send a cached song to the user using the stored Telegram file_id."""
         username = await self._get_bot_username(app)
+        caption = build_audio_caption(
+            title=cached["title"],
+            artist=cached["artist"],
+            duration=cached["duration"],
+        )
+
         ref = await link_store.create_ref(
             payload={
                 "user_id": message.from_user.id,
                 "chat_id": settings.song_cache_channel_id,
-                "message_id": 0,
+                "message_id": cached.get("cache_message_id", 0),
                 "file_id": cached["telegram_file_id"],
                 "file_name": f"{_build_display_name(cached['artist'], cached['title'])}.mp3",
                 "file_size": cached["file_size"],
@@ -982,12 +1008,6 @@ class MusicDownloadManager:
         )
         download_url = f"{settings.download_base_url.rstrip('/')}/generate/{ref}"
         audio_markup = build_audio_keyboard(username, download_url=download_url) if username else None
-        caption = build_audio_caption(
-            title=cached["title"],
-            artist=cached["artist"],
-            duration=cached["duration"],
-        )
-        thumb = cached.get("thumbnail_file_id") or None
         await app.send_audio(
             chat_id=message.chat.id,
             audio=cached["telegram_file_id"],
@@ -998,7 +1018,6 @@ class MusicDownloadManager:
             title=cached["title"],
             performer=cached["artist"],
             duration=cached["duration"],
-            thumb=thumb,
         )
 
     async def _send_large_audio(self, app: Client, message: Message, audio_file: Path, metadata: Any, task: DownloadTask) -> None:
@@ -1034,6 +1053,7 @@ class MusicDownloadManager:
     async def _deliver_audio(self, app: Client, message: Message, audio_file: Path, metadata: Any, task: DownloadTask, download_url: str | None = None) -> None:
         """Send audio directly if under 2GB, otherwise upload to channel and send link."""
         file_size = audio_file.stat().st_size
+
         if file_size <= _TELEGRAM_BOT_UPLOAD_LIMIT:
             username = await self._get_bot_username(app)
             audio_markup = build_audio_keyboard(username, download_url=download_url) if username else None
@@ -1050,7 +1070,7 @@ class MusicDownloadManager:
         audio_providers: tuple[str, ...] = ("youtube-music", "youtube"),
     ) -> SubprocessResult:
         cmd = [
-            shutil.which("spotdl") or "spotdl",
+            _SPOTDL_BIN,
             "download",
             source,
             "--headless",
@@ -1089,7 +1109,7 @@ class MusicDownloadManager:
     ) -> SubprocessResult:
         """Run spotdl download with multiple URLs in a single process to avoid per-track rate limiting."""
         cmd = [
-            shutil.which("spotdl") or "spotdl",
+            _SPOTDL_BIN,
             "download",
             *urls,
             "--headless",
@@ -1123,8 +1143,6 @@ class MusicDownloadManager:
     @staticmethod
     def _kill_process_group(process: asyncio.subprocess.Process) -> None:
         """Kill the entire process group to ensure child processes are also terminated."""
-        import os
-        import signal
         try:
             os.killpg(process.pid, signal.SIGTERM)
         except (ProcessLookupError, PermissionError):
@@ -1367,7 +1385,6 @@ class MusicDownloadManager:
                 "-map", "0:a", "-map", "1:v", "-c:v", "copy",
                 "-metadata:s:v", "comment=Cover (front)",
                 "-c:a", "copy",
-                "-movflags", "+faststart",
                 str(temp_path),
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
@@ -1380,8 +1397,9 @@ class MusicDownloadManager:
                 temp_path.replace(mp3_path)
             else:
                 temp_path.unlink(missing_ok=True)
+                logger.debug("FFmpeg cover art embedding failed for %s (rc=%d): %s", mp3_path.name, proc.returncode, stderr.decode(errors="replace")[:200] if stderr else "no stderr")
         except Exception:
-            logger.debug("Failed to embed cover art in %s", mp3_path.name)
+            logger.debug("Failed to embed cover art in %s", mp3_path.name, exc_info=True)
 
     async def _embed_cover_for_file(self, mp3_path: Path, yt_url: str | None) -> None:
         """Extract YouTube video ID from URL and embed cover art."""
@@ -1411,11 +1429,9 @@ class MusicDownloadManager:
 
         await asyncio.gather(*[_embed(i, f) for i, f in enumerate(files)])
 
+    @timed("convert_to_mp3")
     async def _convert_to_mp3(self, input_path: Path, task: DownloadTask, timeout: float | None = None, *, title: str | None = None, artist: str | None = None, cover_path: Path | None = None) -> Path:
         """Convert an audio file to MP3 using FFmpeg as a subprocess with a timeout."""
-        import os
-        import signal
-
         duration = await self._validate_audio_file(input_path)
         # Dynamic timeout: scale with audio duration (6x real-time + 300s overhead, minimum 900s)
         if timeout is None:
@@ -1462,6 +1478,7 @@ class MusicDownloadManager:
         input_path.unlink(missing_ok=True)
         return output_path
 
+    @timed("ytdlp_download")
     async def _run_ytdlp_download(self, task: DownloadTask, url: str, out_dir: Path, timeout: float = 600) -> tuple[Path, str | None, dict[str, Any] | None]:
         loop = asyncio.get_running_loop()
         last_progress_time = [0.0]  # mutable container for throttle
