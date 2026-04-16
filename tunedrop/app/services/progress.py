@@ -17,6 +17,7 @@ from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from tunedrop.app.core.config import settings
 from tunedrop.app.core.database import get_database
+from tunedrop.app.services.subscription import subscription_service
 from pyrogram.enums import ParseMode
 
 from tunedrop.app.utils.ui_utils import (
@@ -34,7 +35,7 @@ DownloadCallable = Callable[[Client, Message, "DownloadTask"], Awaitable[None]]
 
 _RETRY_MARKUP = build_retry_keyboard()
 
-_MIN_EDIT_INTERVAL = 4.0
+_MIN_EDIT_INTERVAL = 2.0
 _FLOOD_BACKOFF_MAX = 60.0
 
 
@@ -74,6 +75,7 @@ class DownloadTask:
     _last_edit_time: float = field(default=0.0, repr=False)
     _flood_penalty: float = field(default=0.0, repr=False)
     _edit_dead: bool = field(default=False, repr=False)
+    is_pro: bool = field(default=False, repr=False)
 
     async def update(self, text: str | None, parse_mode: str | None = None) -> None:
         if self._edit_dead:
@@ -162,13 +164,11 @@ class TaskRegistry:
         self._failed: dict[int, tuple[Any, DownloadCallable, Client]] = {}
         self._persist_dirty = False
         self._persist_task: asyncio.Task | None = None
+        self._active_count: int = 0
 
     @property
     def active_count(self) -> int:
-        return sum(
-            1 for t in self._tasks.values()
-            if t.worker is not None and not t.worker.done()
-        )
+        return self._active_count
 
     @property
     def queued_count(self) -> int:
@@ -244,49 +244,67 @@ class TaskRegistry:
                     logger.debug("Failed to update queue position for task %s", task_id)
 
     async def _dequeue_next(self) -> None:
-        """Start as many queued tasks as capacity allows."""
-        started = True
-        while started and self._queue:
-            started = False
-            remaining = list(self._queue)
-            for task_id in remaining:
-                task = self._tasks.get(task_id)
-                if not task:
-                    self._queue.remove(task_id)
-                    self._pending_starts.pop(task_id, None)
-                    started = True
-                    continue
-                if task.cancelled():
-                    self._queue.remove(task_id)
-                    self._pending_starts.pop(task_id, None)
-                    self._tasks.pop(task_id, None)
-                    if task.user_id in self._user_tasks:
-                        self._user_tasks[task.user_id].discard(task_id)
-                        if not self._user_tasks[task.user_id]:
-                            del self._user_tasks[task.user_id]
-                    started = True
-                    continue
+        """Start as many queued tasks as capacity allows.
 
-                # Check if this task's user and global limits allow starting
-                if self._should_queue(task.user_id):
-                    continue
+        Pro users are dequeued before Free users (flag set at enqueue time).
+        """
+        if not self._queue:
+            await self._persist()
+            await self._update_queue_positions()
+            return
 
-                start_params = self._pending_starts.pop(task_id, None)
-                if not start_params:
-                    self._queue.remove(task_id)
-                    started = True
-                    continue
+        # Sort queue: Pro users first, then Free (preserving order within each group)
+        # Uses is_pro flag set at enqueue time — zero async lookups
+        remaining = list(self._queue)
+        pro_ids: list[str] = []
+        free_ids: list[str] = []
+        for task_id in remaining:
+            task = self._tasks.get(task_id)
+            if task and task.is_pro:
+                pro_ids.append(task_id)
+            else:
+                free_ids.append(task_id)
+        sorted_remaining = pro_ids + free_ids
 
-                app, message, request, runner = start_params
+        to_remove: list[str] = []
+
+        for task_id in sorted_remaining:
+            task = self._tasks.get(task_id)
+            if not task:
+                to_remove.append(task_id)
+                self._pending_starts.pop(task_id, None)
+                continue
+            if task.cancelled():
+                to_remove.append(task_id)
+                self._pending_starts.pop(task_id, None)
+                self._tasks.pop(task_id, None)
+                if task.user_id in self._user_tasks:
+                    self._user_tasks[task.user_id].discard(task_id)
+                    if not self._user_tasks[task.user_id]:
+                        del self._user_tasks[task.user_id]
+                continue
+
+            # Check if this task's user and global limits allow starting
+            if self._should_queue(task.user_id):
+                continue
+
+            start_params = self._pending_starts.pop(task_id, None)
+            if not start_params:
+                to_remove.append(task_id)
+                continue
+
+            app, message, request, runner = start_params
+            to_remove.append(task_id)
+            self._failed.pop(task.user_id, None)
+            self._user_active_sources[task.user_id] = request.source
+            task.worker = asyncio.create_task(self._run(app, message, task, request, runner))
+            self._active_count += 1
+
+        for task_id in to_remove:
+            try:
                 self._queue.remove(task_id)
-                self._failed.pop(task.user_id, None)
-                self._user_active_sources[task.user_id] = request.source
-                task.worker = asyncio.create_task(self._run(app, message, task, request, runner))
-                started = True
-                break  # Re-evaluate from scratch after starting one
-
-            if not started:
-                break
+            except ValueError:
+                pass
 
         await self._persist()
         await self._update_queue_positions()
@@ -299,7 +317,7 @@ class TaskRegistry:
         active_source = self._user_active_sources.get(user_id)
         if active_source and active_source == request.source:
             await message.reply_text(
-                "⏳ <b>Already processing this playlist.</b>\n\nUse <code>/cancel</code> to stop it first.",
+                "⏳ <b>This playlist is already downloading!</b>\n\nUse <code>/cancel</code> to stop it first.",
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -323,6 +341,7 @@ class TaskRegistry:
             original_message_id=message.id,
             _reply_markup=cancel_kb,
         )
+        task.is_pro = await subscription_service.is_pro(user_id)
         self._tasks[task_id] = task
         if user_id not in self._user_tasks:
             self._user_tasks[user_id] = set()
@@ -340,6 +359,7 @@ class TaskRegistry:
         else:
             self._failed.pop(user_id, None)
             task.worker = asyncio.create_task(self._run(app, message, task, request, runner))
+            self._active_count += 1
 
         await self._persist()
 
@@ -370,6 +390,7 @@ class TaskRegistry:
             status_message=message,
             _reply_markup=cancel_kb,
         )
+        task.is_pro = await subscription_service.is_pro(user_id)
         self._tasks[task_id] = task
         if user_id not in self._user_tasks:
             self._user_tasks[user_id] = set()
@@ -385,6 +406,7 @@ class TaskRegistry:
             )
         else:
             task.worker = asyncio.create_task(self._run(app, message, task, request, runner))
+            self._active_count += 1
 
         await self._persist()
         return True
@@ -406,8 +428,9 @@ class TaskRegistry:
             logger.exception("Download task failed for user %s", task.user_id)
             self._failed[task.user_id] = (request, runner, app)
             task._reply_markup = _RETRY_MARKUP
-            await task.update(build_error_message("Download failed. Try again."), parse_mode=ParseMode.HTML)
+            await task.update(build_error_message("Download failed. Tap retry or try again later."), parse_mode=ParseMode.HTML)
         finally:
+            self._active_count -= 1
             self._tasks.pop(task.task_id, None)
             self._user_active_sources.pop(task.user_id, None)
             if task.user_id in self._user_tasks:

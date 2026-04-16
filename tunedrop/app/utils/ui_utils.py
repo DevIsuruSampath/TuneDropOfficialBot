@@ -34,7 +34,7 @@ def build_progress_message(
     speed_kbps: float | None = None,
 ) -> str:
     if phase == DownloadPhase.QUEUED:
-        lines = ["<b>⏳ Queued</b>"]
+        lines = ["<b>⏳ In queue</b>"]
         if details:
             lines.append(f"<i>{escape_html(details)}</i>")
         return "\n".join(lines)
@@ -46,13 +46,13 @@ def build_progress_message(
         return "\n".join(lines)
 
     if phase == DownloadPhase.CHECKING_CACHE:
-        lines = ["<b>🧠 Checking cache...</b>"]
+        lines = ["<b>⚡ Checking cache...</b>"]
         if details:
             lines.append(f"<i>{escape_html(details)}</i>")
         return "\n".join(lines)
 
     if phase == DownloadPhase.DOWNLOADING:
-        lines = ["<b>⬇️ Downloading...</b>"]
+        lines = ["<b>⬇️ Downloading</b>"]
         if percentage is not None:
             pct_str = f"{percentage:.0f}%"
             parts = [pct_str]
@@ -66,13 +66,13 @@ def build_progress_message(
         return "\n".join(lines)
 
     if phase == DownloadPhase.CONVERTING:
-        lines = ["<b>🔄 Converting audio...</b>"]
+        lines = ["<b>🔄 Converting to MP3...</b>"]
         if details:
             lines.append(f"<i>{escape_html(details)}</i>")
         return "\n".join(lines)
 
     if phase == DownloadPhase.PACKAGING:
-        lines = ["<b>📦 Creating ZIP archive...</b>"]
+        lines = ["<b>📦 Packing ZIP...</b>"]
         if details:
             lines.append(f"<i>{escape_html(details)}</i>")
         return "\n".join(lines)
@@ -84,7 +84,7 @@ def build_progress_message(
         return None
 
     if phase == DownloadPhase.FAILED:
-        return "<b>❌ Failed</b>"
+        return "<b>❌ Something went wrong</b>"
 
     if phase == DownloadPhase.CANCELLED:
         return "<b>🚫 Cancelled</b>"
@@ -100,8 +100,8 @@ def build_audio_caption(
 ) -> str:
     return (
         f"🎵 <b>{escape_html(title)}</b>\n"
-        f"👤 {escape_html(artist)}\n\n"
-        f"⏱ {format_duration_mmss(duration)}   🎧 {quality}"
+        f"👤 {escape_html(artist)}\n"
+        f"⏱ {format_duration_mmss(duration)}  ·  🎧 {quality}"
     )
 
 
@@ -148,9 +148,9 @@ def build_playlist_status(
     done = min(done, total) if total > 0 else done
 
     lines = ["<b>⏳ Processing playlist</b>", ""]
-    lines.append(f"📦 Stage: <b>{stage}</b>")
+    lines.append(f"📦 <b>{stage}</b>")
     if total > 0:
-        lines.append(f"📊 Progress: <b>{done}/{total}</b>")
+        lines.append(f"📊 <b>{done}/{total}</b> tracks")
     if cached > 0:
         lines.append(f"⚡ Cached: {cached}")
     if downloading > 0:
@@ -163,19 +163,29 @@ def build_playlist_status(
 def build_playlist_completion(
     track_count: int,
     file_size: int,
-    download_link: str,
+    download_link: str | None,
     *,
     cached_count: int = 0,
     downloaded_count: int = 0,
     failed_count: int = 0,
+    track_links: list[tuple[str, str]] | None = None,
 ) -> tuple[str, InlineKeyboardMarkup]:
-    """Build playlist completion message with download button."""
+    """Build playlist completion message with download buttons.
+
+    track_links: optional list of (title, download_url) for individual tracks
+    in small playlists where no ZIP is created.
+    """
     lines = [
-        "<b>✅ Playlist Ready</b>",
+        "<b>✅ Playlist ready!</b>",
         "",
-        f"🎶 Tracks: <b>{track_count}</b>",
-        f"💾 Size: <b>{format_bytes(file_size)}</b>",
     ]
+    # Show actual files in ZIP as the main stat
+    actual_files = cached_count + downloaded_count
+    if failed_count > 0:
+        lines.append(f"🎶 <b>{actual_files}/{track_count}</b> tracks  ·  💾 <b>{format_bytes(file_size)}</b>")
+    else:
+        lines.append(f"🎶 <b>{track_count}</b> tracks  ·  💾 <b>{format_bytes(file_size)}</b>")
+    # Show breakdown only when it adds info beyond the total
     if cached_count > 0:
         lines.append(f"⚡ Cached: {cached_count}")
     if downloaded_count > 0:
@@ -183,14 +193,26 @@ def build_playlist_completion(
     if failed_count > 0:
         lines.append(f"❌ Failed: {failed_count}")
 
-    markup = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⬇️ Download", url=download_link)],
-    ])
+    buttons = []
+    if download_link:
+        buttons.append([InlineKeyboardButton("⬇️ Download ZIP", url=download_link)])
+    elif track_links:
+        # Small playlist — individual track download buttons (max 5)
+        for title, url in track_links[:5]:
+            # Truncate long titles for button label
+            label = title[:30] + "…" if len(title) > 30 else title
+            buttons.append([InlineKeyboardButton(f"⬇️ {label}", url=url)])
+
+    if buttons:
+        markup = InlineKeyboardMarkup(buttons)
+    else:
+        markup = InlineKeyboardMarkup([])
+
     return "\n".join(lines), markup
 
 
 def build_error_message(error: str) -> str:
-    return f"<b>❌ Failed. Try again.</b>\n\n<i>{escape_html(error)}</i>"
+    return f"<b>❌ Something went wrong</b>\n<i>{escape_html(error)}</i>"
 
 
 def build_large_file_message(
@@ -206,7 +228,7 @@ def build_large_file_message(
         f"🎵 <b>{escape_html(title)}</b>",
         f"👤 {escape_html(artist)}",
         "",
-        f"<code>{format_bytes(file_size)}</code> · ⏱ {format_duration_mmss(duration)}",
+        f"💾 {format_bytes(file_size)}  ·  ⏱ {format_duration_mmss(duration)}",
         f"<i>~{format_seconds(estimated_time)} at {speed_kbps:.0f} KB/s</i>",
         "",
         f"<code>{download_link}</code>",
@@ -217,13 +239,13 @@ def build_welcome_message() -> str:
     return "\n".join([
         "<b>🎧 TuneDrop</b>",
         "",
-        "Your music, instantly. 🚀",
-        "Download songs from <b>Spotify</b> &amp; <b>YouTube Music</b> in seconds — fast, high-quality, and hassle-free.",
+        "Your music, delivered in seconds.",
+        "Send a <b>Spotify</b> or <b>YouTube Music</b> link — get high-quality audio instantly.",
         "",
-        "🎵 <b>Songs</b> — Send a link or use <code>/song</code> + name",
-        "📀 <b>Playlists</b> — Send a playlist URL, get a ZIP",
+        "🎵 <b>Songs</b> — link or <code>/song</code> + name",
+        "📀 <b>Playlists</b> — playlist link → ZIP archive",
         "",
-        "👇 Tap a button to get started!",
+        "👇 <i>Tap a button to start!</i>",
     ])
 
 
@@ -234,15 +256,16 @@ def build_help_message() -> str:
         "🎵 <b>Songs</b>",
         "• Send a Spotify or YouTube Music link",
         "• Or type <code>/song</code> + song name",
-        "• Get high-quality audio in seconds!",
+        "• High-quality audio in seconds!",
         "",
         "📀 <b>Playlists</b>",
         "• Send a Spotify or YouTube Music playlist URL",
-        "• All tracks packed into a ZIP file",
+        "• All tracks packed into a ZIP",
         "",
         "<b>Commands</b>",
         "<code>/song</code> — search &amp; download",
         "<code>/myfiles</code> — your recent downloads",
+        "<code>/account</code> — account &amp; Pro status",
         "<code>/cancel</code> — stop current task",
         "<code>/donation</code> — support TuneDrop ⭐",
     ])
@@ -251,11 +274,11 @@ def build_help_message() -> str:
 def build_welcome_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("🎵 Search", callback_data="show_search"),
+            InlineKeyboardButton("🔍 Search", callback_data="show_search"),
             InlineKeyboardButton("❓ Help", callback_data="show_help"),
         ],
         [
-            InlineKeyboardButton("⭐ Donate", callback_data="show_donation"),
+            InlineKeyboardButton("❤️ Support", callback_data="show_donation"),
         ],
     ])
 
@@ -287,14 +310,35 @@ def format_expiry(expires_at: datetime) -> str:
     return f"{hours} hour{'s' if hours != 1 else ''} left"
 
 
+def build_free_delivery_message(
+    title: str,
+    artist: str,
+    duration: int,
+    download_url: str,
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Build a download-link-only message for Free users."""
+    text = (
+        f"✅ <b>Ready!</b>\n\n"
+        f"🎵 <b>{escape_html(title)}</b>\n"
+        f"👤 {escape_html(artist)}\n"
+        f"⏱ {format_duration_mmss(duration)}  ·  🎧 320kbps\n\n"
+        f"<i>⚡ Go Pro for instant delivery in Telegram + no ads</i>"
+    )
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⬇️ Download", url=download_url)],
+        [InlineKeyboardButton("⭐ Get Pro", callback_data="show_donation")],
+    ])
+    return text, markup
+
+
 def build_force_sub_message(channel_link: str) -> tuple[str, InlineKeyboardMarkup]:
     """Return (text, markup) for force-subscription prompt."""
     text = (
-        "<b>🔒 Subscription Required</b>\n\n"
-        "Join our channel to use TuneDrop.\n"
-        "After joining, send your request again."
+        "<b>🔒 Join to continue</b>\n\n"
+        "Join our channel to use TuneDrop, then tap <b>Try Again</b>."
     )
     markup = InlineKeyboardMarkup([
         [InlineKeyboardButton("📢 Join Channel", url=channel_link)],
+        [InlineKeyboardButton("✅ Try Again", callback_data="check_sub")],
     ])
     return text, markup

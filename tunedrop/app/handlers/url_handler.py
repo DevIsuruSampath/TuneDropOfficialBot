@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pyrogram import Client, filters
+from pyrogram.enums import ParseMode
 
 from tunedrop.app.services.downloader import DownloadRequest, download_manager
 from tunedrop.app.services.progress import task_registry
@@ -9,8 +10,9 @@ from tunedrop.app.utils.filters import music_input
 from tunedrop.app.utils.validators import classify_input, looks_like_url
 
 _UNSUPPORTED_MSG = (
-    "Only YouTube Music and Spotify URLs are supported.\n\n"
-    "Use /song <query> to search for music."
+    "🔗 <b>Unsupported link</b>\n\n"
+    "Only Spotify and YouTube Music links are supported.\n"
+    "Use <code>/song</code> + name to search instead."
 )
 
 
@@ -39,4 +41,4 @@ def register(app: Client) -> None:
     )
     @once_per_message
     async def unsupported_url_handler(client: Client, message):
-        await message.reply_text(_UNSUPPORTED_MSG)
+        await message.reply_text(_UNSUPPORTED_MSG, parse_mode=ParseMode.HTML)

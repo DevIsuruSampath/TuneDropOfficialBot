@@ -19,6 +19,11 @@ async def _get_shared_client() -> httpx.AsyncClient:
         _shared_client = httpx.AsyncClient(
             follow_redirects=True,
             timeout=httpx.Timeout(connect=10, read=30, write=10, pool=10),
+            limits=httpx.Limits(
+                max_connections=50,
+                max_keepalive_connections=20,
+                keepalive_expiry=30,
+            ),
         )
     return _shared_client
 
@@ -57,5 +62,44 @@ async def extract_thumbnail_from_url(url: str, out_path: Path) -> Path | None:
                 return out_path
             return None
     except Exception:
-        logger.debug("Failed to download thumbnail from %s", url, exc_info=True)
+        logger.warning("Failed to download thumbnail from %s", url, exc_info=True)
+        return None
+
+
+# YouTube thumbnail sizes in order of preference
+_YT_THUMB_SIZES = ("maxresdefault", "sddefault", "hqdefault", "mqdefault")
+
+
+async def extract_youtube_thumbnail(yt_id: str, out_path: Path) -> Path | None:
+    """Try multiple YouTube thumbnail sizes until one succeeds."""
+    for size in _YT_THUMB_SIZES:
+        url = f"https://i.ytimg.com/vi/{yt_id}/{size}.jpg"
+        result = await extract_thumbnail_from_url(url, out_path)
+        if result:
+            return result
+    logger.warning("All YouTube thumbnail sizes failed for video %s", yt_id)
+    return None
+
+
+async def extract_cover_from_mp3(mp3_path: Path, out_path: Path) -> Path | None:
+    """Extract embedded cover art from an MP3 file using FFmpeg."""
+    if not mp3_path.exists():
+        return None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-y",
+            "-i", str(mp3_path),
+            "-an", "-vcodec", "copy",
+            str(out_path),
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15)
+        if proc.returncode == 0 and out_path.exists() and out_path.stat().st_size > 0:
+            return out_path
+        out_path.unlink(missing_ok=True)
+        return None
+    except Exception:
+        logger.debug("Failed to extract cover art from %s", mp3_path.name, exc_info=True)
         return None

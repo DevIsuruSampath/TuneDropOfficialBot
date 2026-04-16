@@ -8,10 +8,10 @@
   <meta name="robots" content="noindex, nofollow">
   <title>{% if expired %}Link Expired - TuneDrop{% else %}Download {{ file_name }}{% endif %}</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎵</text></svg>">
-  <link rel="dns-prefetch" href="https://api.telegram.org">
-  <link rel="preload" as="style" href="/static/fonts/fonts.css">
+  <link rel="preload" as="font" type="font/woff2" href="/static/fonts/inter-600.woff2" crossorigin>
+  <link rel="preload" as="font" type="font/woff2" href="/static/fonts/inter-700.woff2" crossorigin>
   <link rel="stylesheet" href="/static/fonts/fonts.css">
-  <link rel="stylesheet" href="/static/style.css?v=12">
+  <link rel="stylesheet" href="/static/style.css?v=20">
 </head>
 <body{% if ads_enabled %} class="ads-visible"{% endif %}>
   <div class="page-wrapper">
@@ -20,10 +20,10 @@
       <span class="sponsored-label">Sponsored</span>
       <div class="sponsored-body">
         <div class="ad-slot ad-slot-desktop" role="complementary" aria-label="Advertisement">
-          <iframe id="ad-desktop-top" data-ad-wrapper sandbox="allow-scripts allow-same-origin" srcdoc='<script>atOptions={key:"{{ ads_desktop_top_banner.key }}",format:"iframe",height:{{ ads_desktop_top_banner.height }},width:{{ ads_desktop_top_banner.width }},params:{}};</script><script src="{{ ads_desktop_top_banner.invoke_url }}"></script>' frameborder="0" scrolling="no" style="width:{{ ads_desktop_top_banner.width }}px;height:{{ ads_desktop_top_banner.height }}px;border:none;"></iframe>
+          <iframe id="ad-desktop-top" data-ad-wrapper sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox" srcdoc='<script>atOptions={key:"{{ ads_desktop_top_banner.key }}",format:"iframe",height:{{ ads_desktop_top_banner.height }},width:{{ ads_desktop_top_banner.width }},params:{}};</script><script src="{{ ads_desktop_top_banner.invoke_url }}"></script>' frameborder="0" scrolling="no" style="width:{{ ads_desktop_top_banner.width }}px;height:{{ ads_desktop_top_banner.height }}px;border:none;"></iframe>
         </div>
         <div class="ad-slot ad-slot-mobile" role="complementary" aria-label="Advertisement">
-          <iframe id="ad-mobile-top" data-ad-wrapper sandbox="allow-scripts allow-same-origin" srcdoc='<script>atOptions={key:"{{ ads_mobile_top_banner.key }}",format:"iframe",height:{{ ads_mobile_top_banner.height }},width:{{ ads_mobile_top_banner.width }},params:{}};</script><script src="{{ ads_mobile_top_banner.invoke_url }}"></script>' frameborder="0" scrolling="no" style="width:{{ ads_mobile_top_banner.width }}px;height:{{ ads_mobile_top_banner.height }}px;border:none;"></iframe>
+          <iframe id="ad-mobile-top" data-ad-wrapper sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox" srcdoc='<script>atOptions={key:"{{ ads_mobile_top_banner.key }}",format:"iframe",height:{{ ads_mobile_top_banner.height }},width:{{ ads_mobile_top_banner.width }},params:{}};</script><script src="{{ ads_mobile_top_banner.invoke_url }}"></script>' frameborder="0" scrolling="no" style="width:{{ ads_mobile_top_banner.width }}px;height:{{ ads_mobile_top_banner.height }}px;border:none;"></iframe>
         </div>
       </div>
       <p class="sponsored-unavailable">Sponsored content is unavailable on this network</p>
@@ -33,7 +33,6 @@
     {% if expired %}
     <main class="card expired">
       <div class="card-visual" aria-hidden="true">
-        <div class="visual-ring expired-ring"></div>
         <svg class="card-visual-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
       </div>
       <p class="eyebrow">TuneDrop</p>
@@ -48,12 +47,19 @@
         <div class="visual-bars">
           <span></span><span></span><span></span><span></span><span></span>
         </div>
+        {% if is_audio %}
         <svg class="card-visual-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        {% else %}
+        <svg class="card-visual-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        {% endif %}
       </div>
       <p class="eyebrow">TuneDrop</p>
       <h1>{{ file_name }}</h1>
+      {% if file_size %}
+      <p class="meta file-size" id="file-size" data-bytes="{{ file_size }}"></p>
+      {% endif %}
 
-      <a class="dl-btn" id="dl-btn" href="/file/{{ parent_token }}"{% if ads_enabled and ads_smartlink_url %} data-smartlink="{{ ads_smartlink_url }}"{% endif %}>
+      <a class="dl-btn" id="dl-btn" href="/f/{{ stream_token }}"{% if ads_enabled and ads_smartlink_url %} data-smartlink="{{ ads_smartlink_url }}"{% endif %}>
         <span class="dl-btn-bg" aria-hidden="true"></span>
         <svg class="dl-btn-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M19 12l-7 7-7-7"/></svg>
         <span class="dl-btn-label">Download</span>
@@ -66,7 +72,7 @@
       <span class="sponsored-label">Sponsored</span>
       <div class="sponsored-body">
         <div class="ad-slot" role="complementary" aria-label="Advertisement">
-          <iframe id="ad-inline" data-ad-wrapper sandbox="allow-scripts allow-same-origin" srcdoc='<script>atOptions={key:"{{ ads_desktop_inline_banner.key }}",format:"iframe",height:{{ ads_desktop_inline_banner.height }},width:{{ ads_desktop_inline_banner.width }},params:{}};</script><script src="{{ ads_desktop_inline_banner.invoke_url }}"></script>' frameborder="0" scrolling="no" style="width:{{ ads_desktop_inline_banner.width }}px;height:{{ ads_desktop_inline_banner.height }}px;border:none;"></iframe>
+          <iframe id="ad-inline" data-ad-wrapper sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox" srcdoc='<script>atOptions={key:"{{ ads_desktop_inline_banner.key }}",format:"iframe",height:{{ ads_desktop_inline_banner.height }},width:{{ ads_desktop_inline_banner.width }},params:{}};</script><script src="{{ ads_desktop_inline_banner.invoke_url }}"></script>' frameborder="0" scrolling="no" style="width:{{ ads_desktop_inline_banner.width }}px;height:{{ ads_desktop_inline_banner.height }}px;border:none;"></iframe>
         </div>
       </div>
       <p class="sponsored-unavailable">Sponsored content is unavailable on this network</p>
@@ -85,8 +91,8 @@
     <div class="ad-gate-card">
       <div class="ad-gate-state" id="ad-gate-loading">
         <div class="ad-gate-spinner"></div>
-        <p class="ad-gate-loading-text">Preparing your page&hellip;</p>
-        <span class="ad-gate-loading-hint">Please wait <strong id="ad-gate-countdown">3</strong> seconds.</span>
+        <p class="ad-gate-loading-text">Loading ads&hellip;</p>
+        <span class="ad-gate-loading-hint">Please wait <strong id="ad-gate-countdown">5</strong> seconds.</span>
       </div>
       <div class="ad-gate-state" id="ad-gate-blocked">
         <div class="ad-gate-icon" aria-hidden="true">&#x1F6E1;&#xFE0F;</div>
@@ -99,14 +105,15 @@
         </div>
       </div>
       <div class="ad-gate-state" id="ad-gate-thanks">
-        <div class="ad-gate-icon" aria-hidden="true">&#x2764;&#xFE0F;</div>
+        <div class="ad-gate-icon ad-gate-icon-animated" aria-hidden="true">&#x2764;&#xFE0F;</div>
         <h2>Thanks for supporting us!</h2>
         <p class="ad-gate-text">Your support helps keep TuneDrop free and fast for everyone.</p>
+        <span class="ad-gate-loading-hint">Closing in <strong id="ad-gate-thanks-countdown">3</strong>s</span>
       </div>
     </div>
   </div>
   {% endif %}
 
-  <script src="/static/main.js?v=12" defer></script>
+  <script src="/static/main.js?v=20" defer></script>
 </body>
 </html>

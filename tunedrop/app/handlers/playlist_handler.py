@@ -35,8 +35,8 @@ def register(app: Client) -> None:
         buttons.append(nav)
 
         text = (
-            f"<b>📥 Your Downloads</b>\n"
-            f"<i>Tap a file to see options.</i>\n\n"
+            f"<b>📂 Your Downloads</b>\n"
+            f"<i>Tap a file for options.</i>\n\n"
             f"📄 Page {page + 1}/{total}"
         )
         markup = InlineKeyboardMarkup(buttons)
@@ -61,9 +61,9 @@ def register(app: Client) -> None:
         files = await link_store.list_user_files(user.id)
         if not files:
             await message.reply_text(
-                "<b>No active downloads</b>\n\n"
+                "<b>📂 No active downloads</b>\n\n"
                 "Links expire after 24 hours.\n"
-                "Send a song or playlist to get started!",
+                "Send a song or playlist link to get started!",
                 parse_mode=ParseMode.HTML,
             )
             return
@@ -108,7 +108,7 @@ def register(app: Client) -> None:
             ],
         ]
 
-        text = f"<b>📥 {name}</b>\n\nSize: <code>{size}</code>"
+        text = f"<b>📥 {name}</b>\n\n💾 <code>{size}</code>"
         try:
             await callback_query.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=InlineKeyboardMarkup(buttons))
         except Exception:

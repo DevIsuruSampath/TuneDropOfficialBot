@@ -1,11 +1,25 @@
 (function () {
   "use strict";
 
-  var GATE_TIMEOUT_MS = 3000;
+  var GATE_TIMEOUT_MS = 5000;
   var CHECK_INTERVAL_MS = 500;
+
+  /* ── File size formatter ── */
+  var sizeEl = document.getElementById("file-size");
+  if (sizeEl && sizeEl.dataset.bytes) {
+    var bytes = parseInt(sizeEl.dataset.bytes, 10);
+    if (bytes > 0) {
+      var units = ["B", "KB", "MB", "GB"];
+      var i = 0;
+      var size = bytes;
+      while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
+      sizeEl.textContent = size.toFixed(i === 0 ? 0 : 1) + " " + units[i];
+    }
+  }
 
   /* ── Ad-blocker Detection & Friendly Gate ── */
   var gate = document.getElementById("ad-gate");
+  var bait = document.getElementById("ad-bait");
 
   if (gate) {
     var stateLoading = document.getElementById("ad-gate-loading");
@@ -39,81 +53,68 @@
         countdownEl.textContent = remaining;
       }
 
+      if (isAdBlockerActive()) {
+        // Ad blocker detected — stop trying
+        resolved = true;
+        clearInterval(pollId);
+        stateLoading.classList.remove("active");
+        stateBlocked.classList.add("active");
+        refreshSponsoredAreas(true);
+        return;
+      }
+
       if (detectAds()) {
         resolved = true;
         clearInterval(pollId);
         showThanks();
-        refreshSponsoredAreas();
+        refreshSponsoredAreas(false);
         startPostGateMonitoring();
         return;
       }
 
-      // Timeout: 3s passed, no ads → show friendly blocked message (download still works)
+      // Timeout: no ads detected
       if (elapsed >= GATE_TIMEOUT_MS) {
         resolved = true;
         clearInterval(pollId);
         stateLoading.classList.remove("active");
         stateBlocked.classList.add("active");
-        refreshSponsoredAreas();
+        refreshSponsoredAreas(true);
         startPostGateMonitoring();
       }
     }, CHECK_INTERVAL_MS);
   }
 
   /**
-   * Detect if ads loaded by checking:
-   * 1. Bait element was NOT removed/hidden by ad blocker
-   * 2. At least one ad slot contains a non-wrapper iframe (actual ad)
+   * Check if bait element is hidden/removed by an ad blocker.
+   * Returns true if ad blocker is active.
    */
-  function detectAds() {
-    // Check bait element
-    var bait = document.getElementById("ad-bait");
-    if (bait) {
-      if (bait.offsetHeight === 0 || !bait.parentNode) {
-        return false;
-      }
-      var s = getComputedStyle(bait);
-      if (s.display === "none" || s.visibility === "hidden") {
-        return false;
-      }
-    }
-
-    // Check if any ad slot has a non-wrapper iframe (actual ad loaded)
-    var slots = document.querySelectorAll(".ad-slot");
-    for (var i = 0; i < slots.length; i++) {
-      var iframes = slots[i].querySelectorAll("iframe");
-      for (var j = 0; j < iframes.length; j++) {
-        if (!iframes[j].hasAttribute("data-ad-wrapper")) {
-          return true;
-        }
-      }
-    }
-
-    // No ad iframes found
+  function isAdBlockerActive() {
+    if (!bait) return false;
+    if (bait.offsetHeight === 0 || !bait.parentNode) return true;
+    var s = getComputedStyle(bait);
+    if (s.display === "none" || s.visibility === "hidden") return true;
     return false;
   }
 
   /**
-   * Per sponsored area: if no non-wrapper iframe inside, show unavailable message.
+   * Detect if ads are working: bait visible + wrapper iframes exist.
    */
-  function refreshSponsoredAreas() {
+  function detectAds() {
+    if (isAdBlockerActive()) return false;
+    var wrappers = document.querySelectorAll("iframe[data-ad-wrapper]");
+    return wrappers.length > 0;
+  }
+
+  /**
+   * Update sponsored area visibility based on ad state.
+   */
+  function refreshSponsoredAreas(blocked) {
     var areas = document.querySelectorAll(".sponsored-area");
     for (var i = 0; i < areas.length; i++) {
-      var body = areas[i].querySelector(".sponsored-body");
-      var hasAd = false;
-      if (body) {
-        var iframes = body.querySelectorAll("iframe");
-        for (var j = 0; j < iframes.length; j++) {
-          if (!iframes[j].hasAttribute("data-ad-wrapper")) {
-            hasAd = true;
-            break;
-          }
-        }
-      }
-      if (hasAd) {
-        areas[i].classList.remove("sponsored-blocked");
-      } else {
+      if (blocked) {
         areas[i].classList.add("sponsored-blocked");
+      } else {
+        areas[i].classList.remove("sponsored-blocked");
       }
     }
   }
@@ -124,28 +125,37 @@
     if (postGateStarted) return;
     postGateStarted = true;
     var checks = 0;
-    var maxChecks = 30; // 30 × 500 ms ≈ 15 s
+    var maxChecks = 5; // 5 × 2000ms = 10s (was 30 × 500ms = 15s)
     var id = setInterval(function () {
-      refreshSponsoredAreas();
+      refreshSponsoredAreas(isAdBlockerActive());
       checks++;
       if (checks >= maxChecks) clearInterval(id);
-    }, 500);
+    }, 2000);
   }
 
   function showThanks() {
     if (!gate) return;
     stateLoading.classList.remove("active");
     stateThanks.classList.add("active");
-    // Auto-dismiss after 2s
-    setTimeout(function () {
-      dismissGate();
-    }, 2000);
+
+    // Animate countdown: 3 → 2 → 1 → dismiss
+    var thanksCountdownEl = document.getElementById("ad-gate-thanks-countdown");
+    var remaining = 3;
+    var id = setInterval(function () {
+      remaining--;
+      if (thanksCountdownEl) {
+        thanksCountdownEl.textContent = remaining > 0 ? remaining : "0";
+      }
+      if (remaining <= 0) {
+        clearInterval(id);
+        dismissGate();
+      }
+    }, 1000);
   }
 
   function dismissGate() {
     if (!gate) return;
     gate.classList.remove("visible");
-    // Reset states for next time
     stateLoading.classList.remove("active");
     stateBlocked.classList.remove("active");
     stateThanks.classList.remove("active");
@@ -161,7 +171,23 @@
       if (sl) {
         window.open(sl, "_blank", "noopener");
       }
-      // Let the browser handle the href naturally
+
+      // Show loading state
+      if (dlBtn.classList.contains("loading")) return;
+      dlBtn.classList.add("loading");
+      var label = dlBtn.querySelector(".dl-btn-label");
+      label.textContent = "Downloading\u2026";
+
+      // Mark done after short delay (download has started by then)
+      setTimeout(function () {
+        dlBtn.classList.remove("loading");
+        dlBtn.classList.add("done");
+        label.textContent = "Done!";
+        setTimeout(function () {
+          dlBtn.classList.remove("done");
+          label.textContent = "Download";
+        }, 3000);
+      }, 1500);
     });
   }
 

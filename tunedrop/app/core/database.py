@@ -37,8 +37,8 @@ async def init_database():
         client = AsyncMongoClient(
             settings.mongodb_uri,
             maxIdleTimeMS=30000,
-            minPoolSize=10,
-            maxPoolSize=50,
+            minPoolSize=20,
+            maxPoolSize=200,
             connectTimeoutMS=5000,
             serverSelectionTimeoutMS=5000,
             waitQueueTimeoutMS=5000,
@@ -61,6 +61,7 @@ async def init_database():
         await database["active_tasks"].create_index("created_at", expireAfterSeconds=86400)
         await database["cached_songs"].create_index([("cache_key", ASCENDING)], unique=True)
         await database["users"].create_index([("user_id", ASCENDING)], unique=True)
+        await database["donations"].create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
 
         _client = client
         _database = database

@@ -6,26 +6,35 @@ import math
 import re
 from pathlib import Path
 from typing import Any, AsyncIterator
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import time
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from tunedrop.app.core.client import get_aiogram_bot, get_pyrogram_client
+from tunedrop.app.core.client import get_aiogram_bot, get_client_by_index, get_pyrogram_client
 from tunedrop.app.core.config import settings
 from tunedrop.app.core.database import get_database
 from tunedrop.app.services.link_generator import link_store
+from tunedrop.app.services.subscription import subscription_service
 from tunedrop.app.utils.memory_cache import MemoryCache
 
 logger = logging.getLogger(__name__)
 
 # Cache decoded FileId objects — avoids repeated FileId.decode() per request
-_fileid_cache = MemoryCache(max_size=5000, ttl=1800.0)  # 30 min TTL
+_fileid_cache = MemoryCache(max_size=10000, ttl=1800.0)  # 30 min TTL
+
+# Concurrency limit for simultaneous MTProto file streams (initialized lazily)
+_stream_semaphore: asyncio.Semaphore | None = None
+
+def _get_stream_semaphore() -> asyncio.Semaphore:
+    global _stream_semaphore
+    if _stream_semaphore is None:
+        _stream_semaphore = asyncio.Semaphore(50)
+    return _stream_semaphore
 
 # ── SEO Page Data ──────────────────────────────────────────────────────────
 
@@ -405,7 +414,7 @@ _SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def _validate_token(token: str) -> None:
-    if not token or len(token) > 64 or not _SAFE_TOKEN_RE.match(token):
+    if not token or len(token) > 32 or not _SAFE_TOKEN_RE.match(token):
         raise HTTPException(status_code=400, detail="Invalid token format")
 
 
@@ -418,6 +427,78 @@ def create_web_app() -> FastAPI:
 
     # Pure ASGI middleware — avoids BaseHTTPMiddleware bugs with StreamingResponse
     _allowed_domain = settings.download_base_url.replace("https://", "").replace("http://", "").split(":")[0]
+
+    # ── Scanner / attack pattern blocking ──────────────────────────────────
+    _SCANNER_PATH_PATTERNS = re.compile(
+        r"(?:"
+        r"wp-admin|wp-content|wp-includes|wordpress"
+        r"|\.env|\.git|\.aws|\.DS_Store"
+        r"|/etc/passwd|/proc/self"
+        r"|/actuator|/console|/debug|/\.config"
+        r"|/admin|/phpmyadmin|/pma"
+        r")",
+        re.IGNORECASE,
+    )
+    _ATTACK_QUERY_PATTERNS = re.compile(
+        r"(?:"
+        r"exec=|cmd=|command=|run=|system="
+        r"|whoami|passwd|shadow|\.env|aws_credentials"
+        r"|union\s+select|eval\(|base64_"
+        r"|/etc/|/proc/|/var/www"
+        r")",
+        re.IGNORECASE,
+    )
+    # Paths that are only hit by JS source-map enumerators
+    _SCANNER_JS_PREFIXES = (
+        "/js/", "/assets/js/", "/_next/", "/build/static/js/", "/dist/js/",
+        "/static/js/", "/scripts/", "/public/js/",
+    )
+
+    _FORBIDDEN_RESPONSE = Response(content="Forbidden", status_code=403)
+    _NOT_FOUND_RESPONSE = Response(content="Not Found", status_code=404)
+
+    # ── Known legitimate path prefixes ─────────────────────────────────────
+    _LEGITIMATE_PATHS = frozenset({
+        "/", "/health", "/metrics", "/robots.txt", "/sitemap.xml",
+        "/spotify-to-mp3", "/youtube-to-mp3", "/telegram-music-bot",
+        "/download-spotify-playlist", "/landing.css", "/landing.js",
+        "/fonts/fonts.css",
+    })
+    _LEGITIMATE_PREFIXES = (
+        "/d/", "/f/", "/static/",
+        "/generate/", "/download/", "/file/",  # backward compat redirects
+    )
+
+    @app.middleware("http")
+    async def block_scanners(request: Request, call_next):
+        path = request.url.path
+        query = str(request.url.query or "")
+
+        # 1) Block known attack patterns in path
+        if _SCANNER_PATH_PATTERNS.search(path):
+            return _FORBIDDEN_RESPONSE
+
+        # 2) Block known attack patterns in query string
+        if query and _ATTACK_QUERY_PATTERNS.search(query):
+            return _FORBIDDEN_RESPONSE
+
+        # 3) Block JS source-map enumeration (hundreds of /js/*.js requests)
+        if any(path.startswith(p) for p in _SCANNER_JS_PREFIXES):
+            return _NOT_FOUND_RESPONSE
+
+        # 4) Fast reject for unknown paths (avoid full route resolution)
+        #    Only allow known paths to pass through
+        is_known = (
+            path in _LEGITIMATE_PATHS
+            or any(path.startswith(p) for p in _LEGITIMATE_PREFIXES)
+            or path.startswith("/fonts/")
+            or path.startswith("/static/")
+        )
+        if not is_known:
+            return _NOT_FOUND_RESPONSE
+
+        return await call_next(request)
+
     _SECURITY_HEADERS = {
         "X-Content-Type-Options": "nosniff",
         "X-Frame-Options": "DENY",
@@ -425,11 +506,11 @@ def create_web_app() -> FastAPI:
         "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
         "Content-Security-Policy": (
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline'; "
+            "script-src 'self' 'unsafe-inline' https://cardinaltangible.com; "
             "style-src 'self' 'unsafe-inline'; "
-            "img-src 'self' data: https://i.ytimg.com; "
-            "frame-src https://cardinaltangible.com; "
-            "connect-src 'self'"
+            "img-src 'self' data: https:; "
+            "frame-src https:; "
+            "connect-src 'self' https:"
         ),
     }
 
@@ -453,9 +534,77 @@ def create_web_app() -> FastAPI:
         return response
 
     # GZip only for text-based content — skip audio/video/zip (already compressed)
-    app.add_middleware(GZipMiddleware, minimum_size=500)
+    _MEDIA_TYPES = frozenset({
+        "audio/mpeg", "audio/mp4", "audio/ogg", "audio/flac",
+        "application/zip", "application/octet-stream",
+    })
+
+    @app.middleware("http")
+    async def selective_gzip(request: Request, call_next):
+        response = await call_next(request)
+        ct = response.headers.get("content-type", "").split(";")[0].strip()
+        if ct not in _MEDIA_TYPES and response.status_code < 500:
+            # Let starlette's gzip handle it via content-encoding negotiation
+            # We only set the header for text responses
+            if len(response.headers.get("content-length", "0")) > 500 or not response.headers.get("content-length"):
+                response.headers["X-Content-Type"] = ct
+        return response
 
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+
+    # ── Message existence verification ──────────────────────────────────────
+    # Only caches "deleted" results (1 hour) since they never come back.
+    # Tries BOTH Pyrogram and Bot API to avoid false negatives.
+    async def _verify_message_exists(chat_id: int, message_id: int) -> bool:
+        # Fast path: already known (True=exists, False=deleted)
+        cache_key = f"msg:{chat_id}:{message_id}"
+        cached = _fileid_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        # Method 1: Pyrogram get_messages
+        client = get_pyrogram_client()
+        if client and client.is_connected:
+            try:
+                msg = await client.get_messages(chat_id, message_id)
+                if msg is not None and not (hasattr(msg, "empty") and msg.empty):
+                    _fileid_cache.set(cache_key, True, ttl=1800.0)
+                    return True  # Message confirmed to exist
+                # None or empty — might be deleted, confirm with Bot API
+                logger.debug("Pyrogram: message %s:%s appears empty, confirming with Bot API", chat_id, message_id)
+            except Exception as e:
+                err = str(e).lower()
+                if any(x in err for x in ("message id invalid", "message not found", "CHANNEL_PRIVATE")):
+                    _fileid_cache.set(cache_key, False, ttl=3600.0)
+                    logger.info("Message %s:%s confirmed deleted via Pyrogram error: %s", chat_id, message_id, err)
+                    return False
+                logger.debug("Pyrogram get_messages failed for %s:%s: %s", chat_id, message_id, err)
+
+        # Method 2: Bot API forward_message (lightweight check, no copy needed)
+        bot = get_aiogram_bot()
+        try:
+            # forward_message to same channel proves message exists
+            fwd = await bot.forward_message(
+                chat_id=chat_id,
+                from_chat_id=chat_id,
+                message_id=message_id,
+            )
+            # Clean up the forwarded copy
+            try:
+                await bot.delete_message(chat_id, fwd.message_id)
+            except Exception:
+                pass
+            _fileid_cache.set(cache_key, True, ttl=1800.0)
+            return True  # Message confirmed to exist
+        except Exception as e:
+            err = str(e).lower()
+            logger.info("Bot API forward_message failed for %s:%s: %s", chat_id, message_id, err)
+            if any(x in err for x in ("not found", "message_id_invalid", "message to forward not found")):
+                _fileid_cache.set(cache_key, False, ttl=3600.0)
+                logger.info("Message %s:%s confirmed deleted via Bot API", chat_id, message_id)
+                return False
+
+        return True  # Can't verify with either method — assume exists
 
     @app.get("/health")
     async def health() -> dict[str, str]:
@@ -480,6 +629,8 @@ def create_web_app() -> FastAPI:
         body = (
             "User-agent: *\n"
             "Allow: /\n"
+            "Disallow: /d/\n"
+            "Disallow: /f/\n"
             "Disallow: /download/\n"
             "Disallow: /file/\n"
             "Disallow: /generate/\n"
@@ -549,32 +700,97 @@ def create_web_app() -> FastAPI:
         bot_link = f"https://t.me/{settings.bot_username}" if settings.bot_username else "#"
         return templates.TemplateResponse("landing.html", {"request": request, "bot_link": bot_link, "site_url": settings.download_base_url})
 
+    @app.get("/d/{ref}", response_class=HTMLResponse)
+    async def download_page_ref(request: Request, ref: str):
+        """Short download page: resolve ref → get/create stream token → render page."""
+        _validate_token(ref)
+        result = await link_store.resolve_ref_for_page(ref)
+        if not result:
+            raise HTTPException(status_code=404, detail="Download not found")
+        item, stream_token = result
+
+        # Verify the source message still exists in storage channel
+        chat_id = item.get("chat_id")
+        message_id = item.get("message_id")
+        if chat_id and message_id:
+            if not await _verify_message_exists(chat_id, message_id):
+                raise HTTPException(status_code=410, detail="This file has been removed from storage")
+
+        # Pro users don't see ads — cache the decision
+        user_id = item.get("user_id")
+        if user_id:
+            ads_cache_key = f"ads:{user_id}"
+            show_ads = _fileid_cache.get(ads_cache_key)
+            if show_ads is None:
+                is_pro_user = await subscription_service.is_pro(user_id)
+                show_ads = settings.ads_enabled and not is_pro_user
+                _fileid_cache.set(ads_cache_key, show_ads, ttl=300.0)
+        else:
+            show_ads = settings.ads_enabled
+
+        file_name = item.get("file_name", "Unknown")
+        file_size = item.get("file_size", 0)
+
+        context = {
+            "request": request,
+            "file_name": file_name,
+            "file_size": file_size,
+            "stream_token": stream_token,
+            "bot_username": settings.bot_username,
+            "is_audio": file_name.rsplit(".", 1)[-1].lower() in ("mp3", "m4a", "ogg", "flac", "wav", "aac"),
+            "ads_enabled": show_ads,
+            "ads_desktop_top_banner": settings.ads_desktop_top_banner,
+            "ads_desktop_inline_banner": settings.ads_desktop_inline_banner,
+            "ads_mobile_top_banner": settings.ads_mobile_top_banner,
+            "ads_smartlink_url": settings.ads_smartlink_url,
+        }
+        return templates.TemplateResponse("download.html", context)
+
     @app.get("/generate/{ref}")
     async def generate_download_link(ref: str):
+        """Backward compat: redirect old /generate/{ref} URLs to /d/{ref}."""
         _validate_token(ref)
-        link = await link_store.resolve_ref(ref)
-        if not link:
-            raise HTTPException(status_code=404, detail="Download reference not found")
-        return RedirectResponse(url=link, status_code=307)
+        return RedirectResponse(url=f"/d/{ref}", status_code=301)
 
     @app.get("/download/{token}", response_class=HTMLResponse)
-    async def download_page(request: Request, token: str):
+    async def download_page_legacy(request: Request, token: str):
+        """Backward compat: old /download/{token} still renders the page."""
         _validate_token(token)
         item = await link_store.get(token)
         if not item:
             raise HTTPException(status_code=404, detail="File not found")
 
+        # Verify the source message still exists in storage channel
+        chat_id = item.get("chat_id")
+        message_id = item.get("message_id")
+        bot_index = item.get("bot_index", 0)
+        if chat_id and message_id:
+            if not await _verify_message_exists(chat_id, message_id):
+                raise HTTPException(status_code=410, detail="This file has been removed from storage")
+
+        # Pro users don't see ads on download pages — cache the decision
+        user_id = item.get("user_id")
+        if user_id:
+            ads_cache_key = f"ads:{user_id}"
+            show_ads = _fileid_cache.get(ads_cache_key)
+            if show_ads is None:
+                is_pro_user = await subscription_service.is_pro(user_id)
+                show_ads = settings.ads_enabled and not is_pro_user
+                _fileid_cache.set(ads_cache_key, show_ads, ttl=300.0)
+        else:
+            show_ads = settings.ads_enabled
+
         if item.get("expired"):
             context = {
                 "request": request,
                 "file_name": item.get("file_name", "Unknown"),
+                "file_size": item.get("file_size", 0),
                 "expired": True,
                 "bot_username": settings.bot_username,
-                "ads_enabled": settings.ads_enabled,
+                "ads_enabled": show_ads,
                 "ads_desktop_top_banner": settings.ads_desktop_top_banner,
                 "ads_desktop_inline_banner": settings.ads_desktop_inline_banner,
                 "ads_mobile_top_banner": settings.ads_mobile_top_banner,
-                "ads_mobile_bottom_banner": settings.ads_mobile_bottom_banner,
                 "ads_smartlink_url": settings.ads_smartlink_url,
             }
             return templates.TemplateResponse("download.html", context)
@@ -582,30 +798,64 @@ def create_web_app() -> FastAPI:
         context = {
             "request": request,
             "file_name": item.get("file_name", "Unknown"),
-            "parent_token": token,
+            "file_size": item.get("file_size", 0),
+            "stream_token": token,
             "bot_username": settings.bot_username,
-            "ads_enabled": settings.ads_enabled,
+            "is_audio": item.get("file_name", "").rsplit(".", 1)[-1].lower() in ("mp3", "m4a", "ogg", "flac", "wav", "aac"),
+            "ads_enabled": show_ads,
             "ads_desktop_top_banner": settings.ads_desktop_top_banner,
             "ads_desktop_inline_banner": settings.ads_desktop_inline_banner,
             "ads_mobile_top_banner": settings.ads_mobile_top_banner,
-            "ads_mobile_bottom_banner": settings.ads_mobile_bottom_banner,
             "ads_smartlink_url": settings.ads_smartlink_url,
         }
         return templates.TemplateResponse("download.html", context)
 
     @app.get("/file/{token}")
+    async def direct_file_legacy(request: Request, token: str):
+        """Backward compat: redirect old /file/{token} to /f/{token}."""
+        _validate_token(token)
+        return RedirectResponse(url=f"/f/{token}", status_code=301)
+
+    @app.get("/f/{token}")
     async def direct_file(request: Request, token: str):
         _validate_token(token)
 
+        # Limit concurrent MTProto streams to prevent connection exhaustion
+        sem = _get_stream_semaphore()
+        if sem.locked():
+            # Fast check: if all slots are taken, return 503
+            try:
+                # Wait up to 5s for a slot
+                await asyncio.wait_for(sem.acquire(), timeout=5.0)
+            except asyncio.TimeoutError:
+                raise HTTPException(status_code=503, detail="Server busy, try again shortly")
+        else:
+            await sem.acquire()
+
+        try:
+            return await _direct_file_inner(request, token)
+        finally:
+            sem.release()
+
+    async def _direct_file_inner(request: Request, token: str):
         item = await link_store.get(token)
         if not item:
             raise HTTPException(status_code=404, detail="File not found")
         if item.get("expired"):
             raise HTTPException(status_code=410, detail="Download link has expired")
 
+        # Verify the source message still exists in storage channel
+        chat_id = item.get("chat_id")
+        message_id = item.get("message_id")
+        bot_index = item.get("bot_index", 0)
+        if chat_id and message_id:
+            if not await _verify_message_exists(chat_id, message_id):
+                raise HTTPException(status_code=410, detail="This file has been removed from storage")
+
         file_id = item.get("file_id")
         file_name = item.get("file_name", "download.zip")
         file_size = item.get("file_size", 0)
+        bot_index = item.get("bot_index", 0)
 
         if not file_id:
             raise HTTPException(status_code=404, detail="File data incomplete")
@@ -631,7 +881,7 @@ def create_web_app() -> FastAPI:
             if parsed is not None:
                 from_bytes, until_bytes = parsed
 
-        stream_gen = await mtproto_stream(file_id, from_bytes, until_bytes)
+        stream_gen = await mtproto_stream(file_id, from_bytes, until_bytes, bot_index=bot_index)
         if stream_gen is None:
             raise HTTPException(status_code=502, detail="Failed to fetch file from Telegram")
 
@@ -734,17 +984,22 @@ async def mtproto_stream(
     file_id: str,
     from_bytes: int = 0,
     until_bytes: int = 0,
+    bot_index: int = 0,
 ) -> AsyncIterator[bytes] | None:
     """Stream a file directly via MTProto upload.GetFile — no temp file needed.
 
     Decodes the file_id string to get access_hash/file_reference/dc_id,
     creates a media session, and streams chunks via raw GetFile requests.
     Supports up to 4GB. No Bot API 20MB limit.
+    Uses the bot at bot_index (from get_all_clients) to match the file_id's owner.
     """
     from pyrogram.file_id import FileId
     from pyrogram import raw
 
-    client = get_pyrogram_client()
+    # Resolve the correct client for this file_id (file_ids are bot-specific)
+    client = get_client_by_index(bot_index)
+    if client is None or not client.is_connected:
+        client = get_pyrogram_client()
     if client is None:
         logger.warning("Pyrogram client not available for file download")
         return None
@@ -752,7 +1007,8 @@ async def mtproto_stream(
     file_id_obj = _fileid_cache.get(file_id)
     if file_id_obj is None:
         try:
-            file_id_obj = FileId.decode(file_id)
+            loop = asyncio.get_running_loop()
+            file_id_obj = await loop.run_in_executor(None, FileId.decode, file_id)
             _fileid_cache.set(file_id, file_id_obj)
         except Exception:
             logger.exception("Failed to decode file_id: %s", file_id[:40])
@@ -772,20 +1028,64 @@ async def mtproto_stream(
         logger.exception("Failed to create media session for DC %s", file_id_obj.dc_id)
         return None
 
+    async def _refresh_location() -> raw.types.InputDocumentFileLocation | None:
+        """Re-fetch message from cache channel to get a fresh file_reference."""
+        try:
+            db = get_database()
+            doc = await db["cached_songs"].find_one({"telegram_file_id": file_id})
+            if not doc:
+                return None
+            msg_id = doc.get("cache_message_id")
+            chat_id = doc.get("chat_id") or settings.song_cache_channel_id
+            if not msg_id or not chat_id:
+                return None
+            refresh_client = get_client_by_index(doc.get("bot_index", 0)) or client
+            msgs = await refresh_client.get_messages(chat_id, msg_id)
+            if msgs and msgs.audio:
+                fresh_id = msgs.audio.file_id
+                # Update cache
+                await db["cached_songs"].update_one(
+                    {"telegram_file_id": file_id},
+                    {"$set": {"telegram_file_id": fresh_id}},
+                )
+                loop = asyncio.get_running_loop()
+                new_obj = await loop.run_in_executor(None, FileId.decode, fresh_id)
+                _fileid_cache.set(file_id, None)
+                _fileid_cache.set(fresh_id, new_obj)
+                logger.info("Refreshed file_reference in stream for msg %d", msg_id)
+                return raw.types.InputDocumentFileLocation(
+                    id=new_obj.media_id,
+                    access_hash=new_obj.access_hash,
+                    file_reference=new_obj.file_reference,
+                    thumb_size="",
+                )
+        except Exception:
+            logger.debug("Failed to refresh file_reference in stream", exc_info=True)
+        return None
+
     chunk_size = 1024 * 1024  # 1MB chunks
 
     # If until_bytes is 0 (unknown size), stream until exhausted
     if until_bytes <= 0:
         _off0 = from_bytes
         async def _stream_unknown() -> AsyncIterator[bytes]:
+            nonlocal location
             _offset = _off0
             try:
                 while True:
-                    r = await media_session.invoke(
-                        raw.functions.upload.GetFile(
-                            location=location, offset=_offset, limit=chunk_size,
-                        ),
-                    )
+                    try:
+                        r = await media_session.invoke(
+                            raw.functions.upload.GetFile(
+                                location=location, offset=_offset, limit=chunk_size,
+                            ),
+                        )
+                    except Exception as invoke_err:
+                        if "FILE_REFERENCE_EXPIRED" in str(invoke_err):
+                            fresh_loc = await _refresh_location()
+                            if fresh_loc:
+                                location = fresh_loc
+                                continue
+                        raise
                     if isinstance(r, raw.types.upload.File):
                         chunk = r.bytes
                         if not chunk:
@@ -804,17 +1104,26 @@ async def mtproto_stream(
     part_count = math.ceil((until_bytes + 1) / chunk_size) - math.floor(_off / chunk_size)
 
     async def _stream_range() -> AsyncIterator[bytes]:
+        nonlocal location
         _offset = _off
         current_part = 1
         try:
-            r = await media_session.invoke(
-                raw.functions.upload.GetFile(
-                    location=location, offset=_offset, limit=chunk_size,
-                ),
-            )
-            if not isinstance(r, raw.types.upload.File):
-                return
             while True:
+                try:
+                    r = await media_session.invoke(
+                        raw.functions.upload.GetFile(
+                            location=location, offset=_offset, limit=chunk_size,
+                        ),
+                    )
+                except Exception as invoke_err:
+                    if "FILE_REFERENCE_EXPIRED" in str(invoke_err):
+                        fresh_loc = await _refresh_location()
+                        if fresh_loc:
+                            location = fresh_loc
+                            continue
+                    raise
+                if not isinstance(r, raw.types.upload.File):
+                    break
                 chunk = r.bytes
                 if not chunk:
                     break
@@ -830,14 +1139,6 @@ async def mtproto_stream(
                 current_part += 1
                 _offset += chunk_size
                 if current_part > part_count:
-                    break
-
-                r = await media_session.invoke(
-                    raw.functions.upload.GetFile(
-                        location=location, offset=_offset, limit=chunk_size,
-                    ),
-                )
-                if not isinstance(r, raw.types.upload.File):
                     break
         except Exception:
             logger.warning("MTProto stream error for file_id=%s", file_id[:40], exc_info=True)

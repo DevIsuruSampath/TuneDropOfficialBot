@@ -43,12 +43,12 @@ TuneDropOfficialBot/
         │   └── errors.py        # /cancel command
         │
         ├── services/
-        │   ├── downloader.py    # Core: MusicDownloadManager (~1100 lines, 4GB limit)
+        │   ├── downloader.py    # Core: MusicDownloadManager (~1750 lines, parallel pipeline)
         │   ├── progress.py      # TaskRegistry + DownloadTask (bulk_write)
-        │   ├── cache_service.py # SongCache (MongoDB + channel + message_id tracking)
-        │   ├── link_generator.py # Token-based download links (message_id passthrough)
+        │   ├── cache_service.py # SongCache (L1+MongoDB, batch queries, bulk writes)
+        │   ├── link_generator.py # Token-based download links (bulk ref creation)
         │   ├── subscription.py  # User management + Stars donation tracking
-        │   ├── uploader.py      # ZIP upload to Telegram channel (returns message_id)
+        │   ├── uploader.py      # Telegram ops: ZIP upload, batch forward, server-side copy
         │   ├── youtube_service.py # yt-dlp wrapper (aria2c external downloader)
         │   ├── metadata.py      # FFprobe audio metadata
         │   └── zip_service.py   # ZIP archive creation (ZIP_STORED for MP3)
@@ -122,13 +122,14 @@ User sends URL/query in Telegram
     |
     +-- SPOTIFY PLAYLIST:
     |   1. spotdl save -> extract individual track URLs
-    |   2. Batch cache check via get_cached_songs_batch()
+    |   2. L1 cache check -> batch MongoDB $in query for misses
     |   3. Retrieve cached tracks from cache channel (download by file_id)
     |   4. Download uncached tracks via spotdl batch (10 per chunk)
     |   5. Embed cover art concurrently (3 parallel FFmpeg processes)
     |   6. Retry failed tracks individually (1 retry per track)
-    |   7. Cache newly downloaded tracks to cache channel + MongoDB
-    |   8. Build ZIP archive -> upload to PRIVATE_CHANNEL_ID
+    |   7. Cache new tracks: parallel upload (semaphore=3) + bulk DB writes
+    |   8. If >5 tracks: ZIP -> FLOG_CHANNEL
+    |      If <=5 tracks: forward_messages(batch) -> individual links (no ZIP)
     |   9. Generate web download link -> send completion message
     |
     +-- YOUTUBE TRACK:
@@ -140,9 +141,12 @@ User sends URL/query in Telegram
     |
     +-- YOUTUBE PLAYLIST:
     |   1. yt-dlp extract_flat -> get all entries
-    |   2. Batch cache check -> retrieve cached tracks
+    |   2. L1 cache check -> batch MongoDB $in query for misses
     |   3. Download uncached concurrently (5 parallel via semaphore)
-    |   4. Cache new tracks, build ZIP, upload, send link
+    |   4. Cache new tracks: parallel upload (semaphore=3) + bulk DB writes
+    |   5. If >5 tracks: ZIP -> FLOG_CHANNEL
+    |      If <=5 tracks: forward_messages(batch) -> individual links (no ZIP)
+    |   6. Generate web download link -> send completion message
     |
     +-- SEARCH (/song <query>):
         1. Resolve query via ytsearch1 -> get YouTube video ID
@@ -225,16 +229,17 @@ run():
 
 MongoDB Collections                Telegram Channels
 ---------------------------        ---------------------------
-file_links (24h TTL)               PRIVATE_CHANNEL_ID
-  token, user_id, file_id           -> ZIP archives (playlists)
-  chat_id, message_id               -> Large audio files (>2GB)
-  file_name, file_size              -> Uploaded via send_document
+file_links (24h TTL)               FLOG_CHANNEL (auto-delete 1 day)
+  token, user_id, file_id           -> ZIP archives (playlists >5 tracks)
+  chat_id, message_id               -> Forwarded audio for streaming
+  file_name, file_size              -> Large audio files (>2GB)
   created_at (auto-expire)
 
-user_files (24h TTL)               SONG_CACHE_CHANNEL_ID
-  user_id, token, file_name         -> Individual MP3 files
+user_files (24h TTL)               SONG_CACHE_CHANNEL_ID (permanent)
+  user_id, token, file_name         -> All MP3 files (permanent cache)
   created_at (auto-expire)          -> Uploaded via send_audio
                                      -> Cached by cache_key
+                                     -> Forwarded to FLOG for streaming
 download_refs (persistent)
   ref, payload (JSON blob)          File System
     user_id, chat_id, message_id    -----------
@@ -336,7 +341,7 @@ config.py (151 lines) - Application Configuration
   - _safe_int(value, default) - Safe int parsing from string
   - _safe_float(value, default) - Safe float parsing from string
   - Settings dataclass with slots:
-    Telegram: api_id, api_hash, bot_token, private_channel_id,
+    Telegram: api_id, api_hash, bot_token, flog_channel,
               song_cache_channel_id, bot_username, admin_user_ids
     MongoDB: mongodb_uri, mongodb_database
     Web: web_host, web_port, download_base_url
@@ -444,7 +449,7 @@ errors.py
 SERVICES MODULE (tunedrop/app/services/)
 -----------------------------------------
 
-downloader.py (~1100 lines) - Core Download Logic
+downloader.py (~1750 lines) - Core Download Logic
   _build_display_name(artist, title) - "Artist - Title" with dedup
   DownloadRequest dataclass:
     - from_search(), from_input() - Factory methods
@@ -476,13 +481,14 @@ downloader.py (~1100 lines) - Core Download Logic
     SPOTIFY PLAYLIST:
       _download_spotify_playlist()
         1. _get_spotify_playlist_track_urls() via spotdl save (orjson parsing)
-        2. Batch cache check (get_cached_songs_batch)
+        2. L1-first batch cache check (get_cached_songs_batch)
         3. _retrieve_cached_track() from cache channel
         4. spotdl batch download (10 per chunk)
         5. _embed_cover_art_batch() (3 concurrent FFmpeg)
         6. Individual retry for failed tracks
-        7. _cache_spotify_tracks() with cache_message_id tracking
-        8. build_zip -> upload_zip_to_storage (stores upload.message_id) -> link
+        7. _cache_spotify_tracks(): parallel upload (semaphore=3) + bulk DB writes
+        8. Fast path (<=5): forward_messages(batch) + individual links
+           Standard path (>5): build_zip -> upload_zip_to_storage -> link
 
     YOUTUBE TRACK:
       _download_youtube_track()
@@ -494,10 +500,11 @@ downloader.py (~1100 lines) - Core Download Logic
     YOUTUBE PLAYLIST:
       _download_youtube_playlist()
         1. extract_info (flat) -> all entries
-        2. Batch cache check per entry
+        2. L1-first batch cache check per entry
         3. Concurrent download (5 parallel via semaphore)
-        4. _cache_new_tracks() with cache_message_id
-        5. ZIP -> upload_zip_to_storage (real message_id) -> link
+        4. _cache_new_tracks(): parallel upload (semaphore=3) + bulk DB writes
+        5. Fast path (<=5): forward_messages(batch) + individual links
+           Standard path (>5): ZIP -> upload_zip_to_storage -> link
 
     SUBPROCESS MANAGEMENT:
       _run_subprocess() - Generic async subprocess runner
@@ -562,29 +569,32 @@ progress.py (510 lines) - Task & Progress Management
 
   Module singleton: task_registry = TaskRegistry()
 
-cache_service.py (160 lines) - Song Caching
+cache_service.py (~210 lines) - Song Caching
   generate_cache_key(source, input_type, yt_info) -> (key, type) | (None, None)
     - Spotify: regex extract track ID -> "spotify:track:{ID}"
     - YouTube: regex extract video ID -> "youtube:{ID}"
     - Search: uses yt_info.id if available
   SongCache class:
-    - get_cached_song(key) -> Single MongoDB lookup
-    - get_cached_songs_batch(keys) -> $in query for playlists
-    - cache_song(..., cache_message_id=None) -> Upsert metadata + file_id + message_id
+    - get_cached_song(key) -> L1 memory cache -> MongoDB fallback
+    - get_cached_songs_batch(keys) -> L1-first, then $in query for misses only
+    - cache_song(..., cache_message_id=None) -> Single upsert + L1 warm
+    - cache_songs_bulk(docs) -> Single bulk_write(ordered=False) + L1 warm
     - upload_to_cache_channel() -> send_audio to cache channel
       Returns (message_id, audio_file_id, thumbnail_file_id) tuple
-    - invalidate_cache(key) -> Delete from MongoDB
+    - invalidate_cache(key) -> Delete from L1 + MongoDB
   Module singleton: song_cache = SongCache()
 
-link_generator.py (144 lines) - Download Links
+link_generator.py (~200 lines) - Download Links
   LinkStore class:
     - create_ref(payload) -> Persistent reference in download_refs
       payload = {user_id, chat_id, message_id, file_id, file_name, file_size}
+    - create_refs_bulk(payloads) -> Single bulk_write for N refs
+      Falls back to individual inserts on failure
     - resolve_ref(ref) -> Look up ref, create expiring token
       Passes chat_id, message_id, file_id, file_name, file_size through
     - create_link(user_id, payload) -> Direct token creation
     - list_user_files(user_id) -> Recent downloads for /myfiles
-    - get(token) -> Retrieve link metadata (all fields except _id, token, user_id)
+    - get(token) -> Retrieve link metadata (L1-cached, all fields except _id, token, user_id)
     - revoke(token) -> Mark link as expired
   Module singleton: link_store = LinkStore()
 
@@ -596,9 +606,13 @@ subscription.py (60 lines) - User Management & Donations
     - get_total_donations() -> Aggregate total Stars across all users
   Module singleton: subscription_service = SubscriptionService()
 
-uploader.py (41 lines) - File Upload
+uploader.py (~160 lines) - Telegram File Operations
   UploadedFile dataclass - message_id, file_id, file_name, file_size
-  upload_zip_to_storage() -> Send ZIP to private channel via send_document
+  upload_zip_to_storage() -> Send ZIP to FLOG_CHANNEL via send_document
+  copy_audio_to_flog() -> Server-side copy via send_audio(file_id), no re-upload
+  forward_cached_tracks_batch() -> Batch forward_messages (100 per call)
+    - Server-side forwarding SONG_CACHE -> FLOG (zero disk I/O)
+    - Falls back to individual copy_audio_to_flog() on batch failure
 
 youtube_service.py (46 lines) - yt-dlp Wrapper
   _base_ytdlp_opts() -> Shared yt-dlp options (quiet, retries, cookies)
@@ -875,7 +889,7 @@ Volumes:
   logs         - Application log files
 
 Environment Variables (see .env.example):
-  Required: API_ID, API_HASH, BOT_TOKEN, PRIVATE_CHANNEL_ID, MONGODB_URI
+  Required: API_ID, API_HASH, BOT_TOKEN, FLOG_CHANNEL, MONGODB_URI
   Optional: SONG_CACHE_CHANNEL_ID, FORCE_SUB, ADS_ENABLED,
             SPOTIFY_CLIENT_ID, SPOTDL_INACTIVITY_TIMEOUT_SECONDS,
             MAX_CONCURRENT_TASKS, MAX_CONCURRENT_TASKS_PER_USER
@@ -883,6 +897,44 @@ Environment Variables (see .env.example):
   Ads: ADS_ENABLED, WEB_ADS_DESKTOP_TOP_BANNER_KEY/INVOKE_URL,
        WEB_ADS_MOBILE_TOP_BANNER_KEY/INVOKE_URL, ADS_SMARTLINK_URL
 
+
+
+================================================================================
+                         PLAYLIST PERFORMANCE PIPELINE
+================================================================================
+
+Pipeline Constants:
+  _ZIP_THRESHOLD = 5          # ZIP only if more than this many tracks
+  _UPLOAD_SEMAPHORE = 3       # Max parallel send_audio to SONG_CACHE
+  _download_concurrency = 5   # Max parallel yt-dlp downloads
+  _MAX_CONCURRENT_EMBEDS = 3  # Max parallel FFmpeg cover art embeds
+  _FORWARD_BATCH_SIZE = 100   # Telegram forward_messages() limit per call
+
+3-Phase Parallel Caching (_cache_new_tracks / _cache_spotify_tracks):
+  Phase A: Parallel upload to SONG_CACHE (asyncio.gather + semaphore=3)
+  Phase B: Bulk ref creation (1 bulk_write via create_refs_bulk)
+  Phase C: Bulk cache metadata write (1 bulk_write via cache_songs_bulk)
+
+Small Playlist Fast Path (<=5 tracks):
+  - Skips ZIP creation entirely
+  - Re-queries all cache keys (L1-first) to include newly cached tracks
+  - forward_cached_tracks_batch() -> SONG_CACHE to FLOG (server-side)
+  - Bulk ref creation for each forwarded track
+  - Individual download links instead of ZIP
+
+Standard Path (>5 tracks):
+  - Downloads cached tracks to disk (for ZIP building)
+  - Downloads uncached tracks (parallel for YouTube, batch for Spotify)
+  - Parallel upload + bulk DB writes for caching
+  - build_zip -> upload_zip_to_storage -> single ZIP download link
+
+DB Round-Trip Comparison (20-track mixed: 12 cached, 8 new):
+  Before: 16+ individual DB operations
+  After:  2 bulk_write operations (1 for refs, 1 for cache)
+
+Channel Usage:
+  SONG_CACHE_CHANNEL  -> Permanent MP3 cache (upload new, download cached)
+  FLOG_CHANNEL        -> ZIP archives + forwarded/streaming copies (auto-delete)
 
 ================================================================================
                          BOT COMMANDS REFERENCE

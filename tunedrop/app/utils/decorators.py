@@ -22,16 +22,19 @@ _seen_max = 500
 
 # Per-user rate limiting: {user_id: [timestamps]}
 _rate_limit_store: dict[int, list[float]] = {}
-_RATE_LIMIT_WINDOW = 60  # seconds
-_RATE_LIMIT_MAX_REQUESTS = 10  # requests per window
+_RATE_LIMIT_WINDOW = 30  # seconds
+_RATE_LIMIT_MAX_REQUESTS = 15  # requests per window
 _rate_limit_last_prune: float = 0.0
 _RATE_LIMIT_PRUNE_INTERVAL = 300  # prune stale entries every 5 minutes
 
 # Cached channel invite link (resolved once)
 _channel_link_cache: str | None = None
 
+# Force-sub membership cache: {user_id: (timestamp, is_member)}
+# Positive results cached 60s, negative results cached 15s
 _sub_cache: dict[int, tuple[float, bool]] = {}
-_SUB_CACHE_TTL = 300  # 5 minutes
+_SUB_CACHE_POSITIVE_TTL = 60  # seconds — member status
+_SUB_CACHE_NEGATIVE_TTL = 15  # seconds — non-member status
 
 
 def _msg_key(message: Message) -> tuple[int, int]:
@@ -90,7 +93,7 @@ def rate_limit(handler: Handler) -> Handler:
             oldest = timestamps[0]
             cooldown = int(_RATE_LIMIT_WINDOW - (now - oldest))
             await message.reply_text(
-                f"⏳ Too many requests. Wait <b>{cooldown}s</b> and try again.",
+                f"⏳ <b>Slow down!</b> Wait {cooldown}s and try again.",
                 parse_mode=ParseMode.HTML,
             )
             return None
@@ -147,12 +150,29 @@ async def _get_channel_link(client: Any) -> str:
     return _channel_link_cache
 
 
+def _check_sub_cache(user_id: int) -> bool | None:
+    """Check cached membership status. Returns True/False or None if not cached."""
+    entry = _sub_cache.get(user_id)
+    if entry is None:
+        return None
+    cached_at, is_member = entry
+    ttl = _SUB_CACHE_POSITIVE_TTL if is_member else _SUB_CACHE_NEGATIVE_TTL
+    if time.monotonic() - cached_at < ttl:
+        return is_member
+    # Expired — remove
+    del _sub_cache[user_id]
+    return None
+
+
+def _set_sub_cache(user_id: int, is_member: bool) -> None:
+    _sub_cache[user_id] = (time.monotonic(), is_member)
+
+
 def force_sub(handler: Handler) -> Handler:
     """Block non-members from using the handler if FORCE_SUB is enabled.
 
-    Always checks Telegram API for membership. Uses short cache (30s)
-    for positive results to detect when users leave the channel.
-    Admins bypass the check.
+    Caches membership checks: positive results for 60s, negative for 15s.
+    Admins bypass the check entirely.
     """
     @wraps(handler)
     async def wrapper(_, message: Message, *args: Any, **kwargs: Any) -> Any:
@@ -168,12 +188,24 @@ def force_sub(handler: Handler) -> Handler:
         if user.id in settings.admin_user_ids:
             return await handler(_, message, *args, **kwargs)
 
-        # Always query Telegram API — membership can change at any time
+        # Check cache first
+        cached = _check_sub_cache(user.id)
+        if cached is True:
+            return await handler(_, message, *args, **kwargs)
+        if cached is False:
+            channel_link = await _get_channel_link(_)
+            text, markup = build_force_sub_message(channel_link)
+            await message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+            return None
+
+        # Cache miss — query Telegram API
         try:
             member = await _.get_chat_member(settings.force_sub_channel_id, user.id)
             is_member = member is not None and member.status.name not in ("LEFT", "BANNED")
         except Exception:
             is_member = False
+
+        _set_sub_cache(user.id, is_member)
 
         if is_member:
             return await handler(_, message, *args, **kwargs)

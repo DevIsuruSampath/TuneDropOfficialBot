@@ -122,7 +122,7 @@ cp .env.example .env
 | `API_ID` | Telegram API ID from `my.telegram.org` |
 | `API_HASH` | Telegram API hash |
 | `BOT_TOKEN` | Bot token from BotFather |
-| `PRIVATE_CHANNEL_ID` | Private channel ID where the bot is admin |
+| `STREAM_CHANNEL_ID` | Private channel for web downloads (MP3 + ZIP streaming) |
 | `SONG_CACHE_CHANNEL_ID` | Channel for caching audio files |
 | `MONGODB_URI` | MongoDB connection string |
 | `TUNEDROP_DOMAIN` | Your public domain (e.g. `tunedrop.example.com`) |
